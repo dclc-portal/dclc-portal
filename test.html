@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DCLC Testing Center</title>
+<style>
+  :root {
+    --navy: #2E4057; --gold: #F4A541; --bg: #f5f5f3; --bg2: #fff;
+    --border: #e0e0dc; --text2: #666; --text3: #999; --danger: #A32D2D;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; background: var(--bg); margin: 0; padding: 24px 16px 80px; color: #222; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; color: var(--navy); margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--text3); margin-bottom: 20px; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 12px; }
+  .qnum { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; margin-bottom: 4px; }
+  .qtext { font-size: 15px; line-height: 1.5; margin-bottom: 10px; white-space: pre-line; }
+  .sectionheader { font-size: 16px; font-weight: 700; color: var(--navy); margin: 22px 0 6px; padding-bottom: 6px; border-bottom: 2px solid var(--navy); white-space: pre-line; }
+  select, input[type=text], textarea {
+    width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; font-family: Arial;
+  }
+  textarea { min-height: 110px; resize: vertical; }
+  .mc-option { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; font-size: 14px; cursor: pointer; }
+  .mc-option input { margin-top: 3px; }
+  #nameGate { max-width: 400px; margin: 80px auto; text-align: center; }
+  #nameGate input { margin-top: 10px; }
+  #nameGate button { margin-top: 14px; }
+  button.primary {
+    background: var(--navy); color: #fff; border: none; padding: 13px 22px; font-size: 15px;
+    border-radius: 8px; cursor: pointer; width: 100%;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  #submitBar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 1px solid var(--border); padding: 12px 16px; }
+  #submitBar .inner { max-width: 640px; margin: 0 auto; }
+  #error { color: var(--danger); font-size: 13px; margin-top: 8px; display: none; }
+  #doneScreen { max-width: 440px; margin: 100px auto; text-align: center; display: none; }
+  #doneScreen h2 { color: var(--navy); }
+  #loading, #loadError { text-align: center; padding: 80px 20px; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<div id="nameGate">
+  <h1>DCLC Testing Center</h1>
+  <p class="sub">Confirm your name before starting</p>
+  <input type="text" id="studentNameInput" placeholder="First and last name">
+  <button class="primary" id="startBtn" onclick="startTest()">Start test</button>
+  <div id="nameError" style="color:#A32D2D;font-size:13px;margin-top:8px;display:none">Please enter your full name.</div>
+</div>
+
+<div id="loading" style="display:none">Loading test...</div>
+<div id="loadError" style="display:none"></div>
+
+<div class="wrap" id="testWrap" style="display:none">
+  <h1 id="testTitle"></h1>
+  <div class="sub" id="testStudentLine"></div>
+  <div id="questions"></div>
+  <div id="submitBar">
+    <div class="inner">
+      <button class="primary" id="submitBtn" onclick="submitTest()">Submit test</button>
+      <div id="error"></div>
+    </div>
+  </div>
+</div>
+
+<div id="doneScreen">
+  <h2><i></i>You're all done</h2>
+  <p class="sub" style="font-size:14px">Your answers have been saved. You may close this page — nothing else to do.</p>
+</div>
+
+<script>
+  var params = new URLSearchParams(window.location.search);
+  var TEST_ID = params.get('test');
+  var BACKEND_URL = 'https://script.google.com/a/macros/dallaschristian.com/s/AKfycbwKeI4Pycbcq0I1xAEBqniwl6MZv1Ep8kai4lZS2UGWUbSyDYXRl6AKgVgfz_82mLW6zg/exec';
+  var studentName = '';
+  var testData = null;
+
+  function startTest(){
+    var name = document.getElementById('studentNameInput').value.trim();
+    if(!name){
+      document.getElementById('nameError').style.display = 'block';
+      return;
+    }
+    studentName = name;
+    document.getElementById('nameGate').style.display = 'none';
+    loadTest();
+  }
+
+  function loadTest(){
+    if(!TEST_ID){
+      showLoadError('No test was specified in this link. Please go back to the Testing Center and try again.');
+      return;
+    }
+    document.getElementById('loading').style.display = 'block';
+    fetch(BACKEND_URL + '?action=getTest&testId=' + encodeURIComponent(TEST_ID))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        document.getElementById('loading').style.display = 'none';
+        if(!data.ok){
+          showLoadError(data.error || 'Could not load this test.');
+          return;
+        }
+        testData = data;
+        renderTest();
+      })
+      .catch(function(){
+        document.getElementById('loading').style.display = 'none';
+        showLoadError('Could not reach the Testing Center right now. Please try again in a moment.');
+      });
+  }
+
+  function showLoadError(msg){
+    var el = document.getElementById('loadError');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function renderTest(){
+    document.getElementById('testTitle').textContent = testData.title;
+    document.getElementById('testStudentLine').textContent = studentName;
+    var container = document.getElementById('questions');
+    var html = '';
+    var qIndex = 0;
+    var activeWordBank = null;
+
+    testData.questions.forEach(function(q){
+      if(q.type === 'sectionheader'){
+        html += '<div class="sectionheader">' + escapeHtml(q.text) + '</div>';
+        var m = q.text.match(/word bank[:\s]*([\s\S]*)/i);
+        activeWordBank = m ? m[1].trim().split(/\s+/).filter(function(w){return w.length;}) : null;
+        return;
+      }
+      var qid = 'q' + qIndex;
+      html += '<div class="card" data-qtype="' + q.type + '" data-qid="' + qid + '">';
+      html += '<div class="qnum">Question ' + (qIndex + 1) + '</div>';
+      html += '<div class="qtext">' + escapeHtml(q.text) + '</div>';
+
+      if(q.type === 'multiplechoice' || q.type === 'truefalse'){
+        var opts = q.type === 'truefalse' ? ['True', 'False'] : q.options;
+        opts.forEach(function(opt, i){
+          html += '<label class="mc-option"><input type="radio" name="' + qid + '" value="' + escapeHtml(opt) + '"> ' + escapeHtml(opt) + '</label>';
+        });
+      } else if(q.type === 'longanswer' || (q.type === 'shortanswer' && !activeWordBank && looksLikeLongAnswer(q.text))){
+        html += '<textarea name="' + qid + '"></textarea>';
+      } else if(q.type === 'shortanswer' && activeWordBank){
+        html += '<select name="' + qid + '"><option value="">Choose...</option>';
+        activeWordBank.forEach(function(w){ html += '<option value="' + escapeHtml(w) + '">' + escapeHtml(w) + '</option>'; });
+        html += '</select>';
+      } else if(q.type === 'shortanswer'){
+        html += '<input type="text" name="' + qid + '">';
+      } else if(q.type === 'matching'){
+        html += '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Match each item below to one of: ' + q.columns.map(escapeHtml).join(', ') + '</div>';
+        q.rows.forEach(function(rowText, ri){
+          html += '<div style="margin-bottom:10px"><div style="font-size:14px;margin-bottom:4px">' + escapeHtml(rowText) + '</div>';
+          html += '<select name="' + qid + '_row' + ri + '"><option value="">Choose...</option>';
+          q.columns.forEach(function(c){ html += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; });
+          html += '</select></div>';
+        });
+      }
+
+      html += '</div>';
+      qIndex++;
+    });
+
+    container.innerHTML = html;
+    document.getElementById('testWrap').style.display = 'block';
+  }
+
+  function looksLikeLongAnswer(text){
+    var t = String(text || '').toLowerCase();
+    var patterns = [/at least\s+\d+\s+(complete\s+)?sentences?/, /in\s+(a\s+)?paragraph/, /explain\s+(in\s+detail|your\s+(reasoning|answer))/, /describe\s+in\s+detail/, /\bessay\b/, /make\s+a\s+connection/];
+    if(patterns.some(function(re){ return re.test(t); })) return true;
+    return t.length > 150;
+  }
+
+  function escapeHtml(s){
+    var d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function collectAnswers(){
+    var answers = [];
+    var cards = document.querySelectorAll('#questions .card');
+    cards.forEach(function(card){
+      var qtext = card.querySelector('.qtext').textContent;
+      var qtype = card.getAttribute('data-qtype');
+      if(qtype === 'matching'){
+        var selects = card.querySelectorAll('select');
+        var rowAnswers = [];
+        selects.forEach(function(sel){
+          var rowLabel = sel.previousElementSibling.textContent;
+          rowAnswers.push({ item: rowLabel, answer: sel.value || '(blank)' });
+        });
+        answers.push({ question: qtext, type: qtype, matching: rowAnswers });
+      } else if(qtype === 'multiplechoice' || qtype === 'truefalse'){
+        var checked = card.querySelector('input[type=radio]:checked');
+        answers.push({ question: qtext, type: qtype, answer: checked ? checked.value : '(blank)' });
+      } else {
+        var field = card.querySelector('input[type=text], textarea, select');
+        answers.push({ question: qtext, type: qtype, answer: field && field.value ? field.value : '(blank)' });
+      }
+    });
+    return answers;
+  }
+
+  function submitTest(){
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('error').style.display = 'none';
+    var answers = collectAnswers();
+
+    // Also keep a local backup the instant they submit — belt and
+    // suspenders in case the network request itself fails after
+    // several tries and the answers would otherwise only exist in
+    // memory in a tab the student might close.
+    try {
+      localStorage.setItem('dclc_test_backup_' + TEST_ID, JSON.stringify({ studentName: studentName, testTitle: testData.title, answers: answers, savedAt: new Date().toISOString() }));
+    } catch(e) {}
+
+    attemptSubmit(answers, 3);
+  }
+
+  function attemptSubmit(answers, attemptsLeft){
+    fetch(BACKEND_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'submitTest',
+        testId: TEST_ID,
+        testTitle: testData.title,
+        studentName: studentName,
+        studentEmail: '',
+        answers: answers
+      })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(!data.ok){
+          throw new Error('Save failed');
+        }
+        document.getElementById('testWrap').style.display = 'none';
+        document.getElementById('doneScreen').style.display = 'block';
+      })
+      .catch(function(){
+        if(attemptsLeft > 1){
+          setTimeout(function(){ attemptSubmit(answers, attemptsLeft - 1); }, 1500);
+        } else {
+          document.getElementById('submitBtn').disabled = false;
+          document.getElementById('error').textContent = 'Could not save your answers after several tries. Please stay on this page and try Submit again, or tell Mrs. Betsy right away.';
+          document.getElementById('error').style.display = 'block';
+        }
+      });
+  }
+</script>
+</body>
+</html>
