@@ -10,7 +10,7 @@
     --border: #e0e0dc; --text2: #666; --text3: #999; --danger: #A32D2D;
   }
   * { box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; background: var(--bg); margin: 0; padding: 24px 16px 80px; color: #222; }
+  body { font-family: Arial, sans-serif; background: var(--bg); margin: 0; padding: 24px 16px 90px; color: #222; }
   .wrap { max-width: 640px; margin: 0 auto; }
   h1 { font-size: 20px; color: var(--navy); margin: 0 0 4px; }
   .sub { font-size: 13px; color: var(--text3); margin-bottom: 20px; }
@@ -32,12 +32,29 @@
     border-radius: 8px; cursor: pointer; width: 100%;
   }
   button.primary:disabled { opacity: 0.5; cursor: default; }
-  #submitBar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 1px solid var(--border); padding: 12px 16px; }
+  button.secondary {
+    background: #fff; color: var(--navy); border: 1px solid var(--navy); padding: 13px 22px; font-size: 15px;
+    border-radius: 8px; cursor: pointer; width: 100%;
+  }
+  button.secondary:disabled { opacity: 0.4; cursor: default; }
+  #submitBar, #paceNav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 1px solid var(--border); padding: 12px 16px; }
   #submitBar .inner { max-width: 640px; margin: 0 auto; }
+  #paceNav .inner { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; }
+  #paceNav .inner button { flex: 1; margin: 0; }
   #error { color: var(--danger); font-size: 13px; margin-top: 8px; display: none; }
   #doneScreen { max-width: 440px; margin: 100px auto; text-align: center; display: none; }
   #doneScreen h2 { color: var(--navy); }
   #loading, #loadError { text-align: center; padding: 80px 20px; color: var(--text3); }
+  .step { display: none; }
+  .step.activeStep { display: block; }
+  #paceBar { display: none; margin-bottom: 18px; }
+  .progressWrap { background: #e6e6e2; border-radius: 6px; height: 8px; overflow: hidden; }
+  .progressFill { background: var(--navy); height: 100%; width: 0%; transition: width .2s; }
+  .progressText { font-size: 12px; color: var(--text3); margin-top: 6px; text-align: center; }
+  .wordBankStrip { margin-top: 14px; padding: 10px 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .wordBankLabel { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text3); width: 100%; margin-bottom: 2px; }
+  .wbWord { font-size: 13px; padding: 4px 10px; border-radius: 14px; background: #f0f6ff; color: var(--navy); border: 1px solid #d7e6fb; }
+  .wbWord.used { background: #f0f0ee; color: #bbb; text-decoration: line-through; border-color: #e6e6e2; }
 </style>
 </head>
 <body>
@@ -56,17 +73,32 @@
 <div class="wrap" id="testWrap" style="display:none">
   <h1 id="testTitle"></h1>
   <div class="sub" id="testStudentLine"></div>
+
+  <div id="paceBar">
+    <div class="progressWrap"><div id="progressFill" class="progressFill"></div></div>
+    <div id="progressText" class="progressText"></div>
+    <div id="wordBankStrip" class="wordBankStrip" style="display:none"></div>
+  </div>
+
   <div id="questions"></div>
+
   <div id="submitBar">
     <div class="inner">
       <button class="primary" id="submitBtn" onclick="submitTest()">Submit test</button>
       <div id="error"></div>
     </div>
   </div>
+
+  <div id="paceNav" style="display:none">
+    <div class="inner">
+      <button class="secondary" id="paceBackBtn" onclick="paceBack()">&larr; Back</button>
+      <button class="primary" id="paceNextBtn" onclick="paceNext()">Next &rarr;</button>
+    </div>
+  </div>
 </div>
 
 <div id="doneScreen">
-  <h2><i></i>You're all done</h2>
+  <h2>You're all done</h2>
   <p class="sub" style="font-size:14px">Your answers have been saved. You may close this page — nothing else to do.</p>
 </div>
 
@@ -76,6 +108,11 @@
   var BACKEND_URL = 'https://script.google.com/a/macros/dallaschristian.com/s/AKfycbwKeI4Pycbcq0I1xAEBqniwl6MZv1Ep8kai4lZS2UGWUbSyDYXRl6AKgVgfz_82mLW6zg/exec';
   var studentName = '';
   var testData = null;
+
+  // Paced ("one question at a time") mode state
+  var stepWordBanks = [];   // stepIndex -> { key, words } or null
+  var currentStepIndex = 0;
+  var totalSteps = 0;
 
   function startTest(){
     var name = document.getElementById('studentNameInput').value.trim();
@@ -124,48 +161,71 @@
     var html = '';
     var qIndex = 0;
     var activeWordBank = null;
+    var wbKeyCounter = 0;
+    var activeWbKey = null;
+    var pendingHeaderHtml = ''; // section header(s) waiting to be bundled with the next question
 
     testData.questions.forEach(function(q){
       if(q.type === 'sectionheader'){
-        html += '<div class="sectionheader">' + escapeHtml(q.text) + '</div>';
+        pendingHeaderHtml += '<div class="sectionheader">' + escapeHtml(q.text) + '</div>';
         var m = q.text.match(/word bank[:\s]*([\s\S]*)/i);
-        activeWordBank = m ? m[1].trim().split(/\s+/).filter(function(w){return w.length;}) : null;
+        if(m){
+          activeWordBank = m[1].trim().split(/\s+/).filter(function(w){return w.length;});
+          wbKeyCounter++;
+          activeWbKey = 'wb' + wbKeyCounter;
+        } else {
+          activeWordBank = null;
+          activeWbKey = null;
+        }
         return;
       }
       var qid = 'q' + qIndex;
-      html += '<div class="card" data-qtype="' + q.type + '" data-qid="' + qid + '">';
-      html += '<div class="qnum">Question ' + (qIndex + 1) + '</div>';
-      html += '<div class="qtext">' + escapeHtml(q.text) + '</div>';
+      var usesWordBank = (q.type === 'shortanswer' && activeWordBank);
+      stepWordBanks[qIndex] = usesWordBank ? { key: activeWbKey, words: activeWordBank } : null;
+
+      var qHtml = '<div class="card" data-qtype="' + q.type + '" data-qid="' + qid + '">';
+      qHtml += '<div class="qnum">Question ' + (qIndex + 1) + '</div>';
+      qHtml += '<div class="qtext">' + escapeHtml(q.text) + '</div>';
 
       if(q.type === 'multiplechoice' || q.type === 'truefalse'){
         var opts = q.type === 'truefalse' ? ['True', 'False'] : q.options;
-        opts.forEach(function(opt, i){
-          html += '<label class="mc-option"><input type="radio" name="' + qid + '" value="' + escapeHtml(opt) + '"> ' + escapeHtml(opt) + '</label>';
+        opts.forEach(function(opt){
+          qHtml += '<label class="mc-option"><input type="radio" name="' + qid + '" value="' + escapeHtml(opt) + '"> ' + escapeHtml(opt) + '</label>';
         });
       } else if(q.type === 'longanswer' || (q.type === 'shortanswer' && !activeWordBank && looksLikeLongAnswer(q.text))){
-        html += '<textarea name="' + qid + '"></textarea>';
-      } else if(q.type === 'shortanswer' && activeWordBank){
-        html += '<select name="' + qid + '"><option value="">Choose...</option>';
-        activeWordBank.forEach(function(w){ html += '<option value="' + escapeHtml(w) + '">' + escapeHtml(w) + '</option>'; });
-        html += '</select>';
+        qHtml += '<textarea name="' + qid + '"></textarea>';
+      } else if(usesWordBank){
+        qHtml += '<select name="' + qid + '" data-wbkey="' + activeWbKey + '"><option value="">Choose...</option>';
+        activeWordBank.forEach(function(w){ qHtml += '<option value="' + escapeHtml(w) + '">' + escapeHtml(w) + '</option>'; });
+        qHtml += '</select>';
       } else if(q.type === 'shortanswer'){
-        html += '<input type="text" name="' + qid + '">';
+        qHtml += '<input type="text" name="' + qid + '">';
       } else if(q.type === 'matching'){
-        html += '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Match each item below to one of: ' + q.columns.map(escapeHtml).join(', ') + '</div>';
+        qHtml += '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Match each item below to one of: ' + q.columns.map(escapeHtml).join(', ') + '</div>';
         q.rows.forEach(function(rowText, ri){
-          html += '<div style="margin-bottom:10px"><div style="font-size:14px;margin-bottom:4px">' + escapeHtml(rowText) + '</div>';
-          html += '<select name="' + qid + '_row' + ri + '"><option value="">Choose...</option>';
-          q.columns.forEach(function(c){ html += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; });
-          html += '</select></div>';
+          qHtml += '<div style="margin-bottom:10px"><div style="font-size:14px;margin-bottom:4px">' + escapeHtml(rowText) + '</div>';
+          qHtml += '<select name="' + qid + '_row' + ri + '"><option value="">Choose...</option>';
+          q.columns.forEach(function(c){ qHtml += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; });
+          qHtml += '</select></div>';
         });
       }
 
-      html += '</div>';
+      qHtml += '</div>';
+
+      html += '<div class="step" data-step="' + qIndex + '">' + pendingHeaderHtml + qHtml + '</div>';
+      pendingHeaderHtml = '';
       qIndex++;
     });
 
     container.innerHTML = html;
     document.getElementById('testWrap').style.display = 'block';
+
+    if(testData.pacing === 'one-at-a-time'){
+      setupPacedMode();
+    } else {
+      // Normal mode: every step is simply shown at once.
+      document.querySelectorAll('#questions .step').forEach(function(el){ el.classList.add('activeStep'); });
+    }
   }
 
   function looksLikeLongAnswer(text){
@@ -179,6 +239,87 @@
     var d = document.createElement('div');
     d.textContent = String(s == null ? '' : s);
     return d.innerHTML;
+  }
+
+  // ── PACED ("one question at a time") MODE ─────────────────────
+  function setupPacedMode(){
+    var steps = document.querySelectorAll('#questions .step');
+    totalSteps = steps.length;
+    if(!totalSteps) return;
+
+    document.getElementById('paceBar').style.display = 'block';
+    document.getElementById('submitBar').style.display = 'none';
+    document.getElementById('paceNav').style.display = 'block';
+
+    // Any word-bank select, wherever it lives in the test, should
+    // update the strip the instant an answer changes — this is what
+    // makes the "crossed off as used" behavior work across every
+    // question that shares the same word bank, not just the one on
+    // screen right now.
+    document.querySelectorAll('#questions select[data-wbkey]').forEach(function(sel){
+      sel.addEventListener('change', refreshWordBankStrip);
+    });
+
+    currentStepIndex = 0;
+    showStep(0);
+  }
+
+  function showStep(i){
+    document.querySelectorAll('#questions .step').forEach(function(el, idx){
+      el.classList.toggle('activeStep', idx === i);
+    });
+
+    var pct = Math.round(((i + 1) / totalSteps) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').textContent = 'Question ' + (i + 1) + ' of ' + totalSteps;
+
+    document.getElementById('paceBackBtn').disabled = (i === 0);
+
+    var isLast = (i === totalSteps - 1);
+    document.getElementById('paceNextBtn').style.display = isLast ? 'none' : 'block';
+    document.getElementById('paceNav').style.display = isLast ? 'none' : 'block';
+    document.getElementById('submitBar').style.display = isLast ? 'block' : 'none';
+
+    refreshWordBankStrip();
+  }
+
+  function paceNext(){
+    if(currentStepIndex < totalSteps - 1){
+      currentStepIndex++;
+      showStep(currentStepIndex);
+      window.scrollTo(0, 0);
+    }
+  }
+
+  function paceBack(){
+    if(currentStepIndex > 0){
+      currentStepIndex--;
+      showStep(currentStepIndex);
+      window.scrollTo(0, 0);
+    }
+  }
+
+  /** Shows the word bank for the CURRENT step's question, if it uses one, with already-picked words crossed out — checked across every question sharing that same bank, not just this one. */
+  function refreshWordBankStrip(){
+    var stripEl = document.getElementById('wordBankStrip');
+    var bank = stepWordBanks[currentStepIndex];
+    if(!bank){
+      stripEl.style.display = 'none';
+      stripEl.innerHTML = '';
+      return;
+    }
+
+    var used = {};
+    document.querySelectorAll('select[data-wbkey="' + bank.key + '"]').forEach(function(sel){
+      if(sel.value) used[sel.value] = true;
+    });
+
+    var html = '<div class="wordBankLabel">Word Bank</div>';
+    bank.words.forEach(function(w){
+      html += '<span class="wbWord' + (used[w] ? ' used' : '') + '">' + escapeHtml(w) + '</span>';
+    });
+    stripEl.innerHTML = html;
+    stripEl.style.display = 'flex';
   }
 
   function collectAnswers(){
