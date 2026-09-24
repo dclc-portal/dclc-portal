@@ -529,6 +529,11 @@ const ACCOMM={
   ]
 };
 
+// Pilot tracking item — NOT part of any student's official accommodations list.
+// Always selectable for any student in the testing prep accommodation modal,
+// purely to gather usage data ahead of deciding whether to formalize it.
+const PILOT_ACCOMM_NAME = 'One Question at a Time (Pilot)';
+
 const AVATARS=[{bg:'#e8f0f8',fg:'#185FA5'},{bg:'#E1F5EE',fg:'#0F6E56'},{bg:'#FAEEDA',fg:'#854F0B'},{bg:'#EEEDFE',fg:'#534AB7'},{bg:'#FAECE7',fg:'#993C1D'},{bg:'#EAF3DE',fg:'#3B6D11'}];
 
 // ── STATE ──────────────────────────────────────────────────────
@@ -2767,12 +2772,13 @@ async function buildPrepView(){
                 const att = (ev.attendance && ev.attendance[s.id]) || {attended:false, accommodationsUsed:[]};
                 const stuAccomm = (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a));
                 const usedCount = att.accommodationsUsed.length;
+                const totalSlots = stuAccomm.length + 1; // +1 for the always-available pilot checkbox
                 return `<div style="display:flex;align-items:center;gap:8px" id="stuRow_${ev.id}_${s.id}">
                   <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;flex:1">
                     <input type="checkbox" ${att.attended?'checked':''} onchange="toggleAttendance('${ev.id}','${s.id}',this.checked)" style="width:14px;height:14px">
                     <span style="${att.attended?'font-weight:700;color:var(--text)':''}">${s.name.split(' ')[0]} ${s.name.split(' ').slice(-1)[0]}</span>
                   </label>
-                  ${stuAccomm.length ? `<button ${!att.attended?'disabled':''} onclick="openAccommModal('${ev.id}','${s.id}','${s.name.replace(/'/g,"\\'")}')" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid ${att.attended?'var(--border2)':'var(--border)'};background:${att.attended?'var(--bg2)':'transparent'};color:${att.attended?'var(--text2)':'var(--text3)'};cursor:${att.attended?'pointer':'default'};opacity:${att.attended?'1':'.5'};flex-shrink:0" id="accommBtn_${ev.id}_${s.id}"><i class="ti ti-adjustments" style="font-size:11px"></i> ${usedCount}/${stuAccomm.length}</button>` : ''}
+                  <button ${!att.attended?'disabled':''} onclick="openAccommModal('${ev.id}','${s.id}','${s.name.replace(/'/g,"\\'")}')" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid ${att.attended?'var(--border2)':'var(--border)'};background:${att.attended?'var(--bg2)':'transparent'};color:${att.attended?'var(--text2)':'var(--text3)'};cursor:${att.attended?'pointer':'default'};opacity:${att.attended?'1':'.5'};flex-shrink:0" id="accommBtn_${ev.id}_${s.id}"><i class="ti ti-adjustments" style="font-size:11px"></i> ${usedCount}/${totalSlots}</button>
                 </div>`;
               }).join('')}
             </div>
@@ -2903,6 +2909,14 @@ function openAccommModal(eventId, studentId, studentName){
         ${a}
       </label>`).join('')}
     </div>
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;padding-top:10px;border-top:1px dashed var(--border)">Pilot tracking <span style="font-weight:400;text-transform:none;color:var(--text3)">— not an official accommodation</span></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Available for any student, to gather usage data ahead of April meetings.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
+        <input type="checkbox" ${att.accommodationsUsed.includes(PILOT_ACCOMM_NAME)?'checked':''} onchange="toggleAccommUsed('${eventId}','${studentId}','${PILOT_ACCOMM_NAME}',this.checked)" style="width:16px;height:16px">
+        ${PILOT_ACCOMM_NAME}
+      </label>
+    </div>
     <div style="display:flex;justify-content:flex-end">
       <button class="btn btn-primary" onclick="document.getElementById('accommModal').remove()">Done</button>
     </div>
@@ -2928,7 +2942,7 @@ async function toggleAccommUsed(eventId, studentId, accommName, used){
   if(btn){
     const s = students.find(x=>x.id===studentId);
     const TESTING_ACCOMM = (ACCOMM['Testing Accommodations']||[]);
-    const total = s ? (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a)).length : 0;
+    const total = (s ? (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a)).length : 0) + 1; // +1 for the always-available pilot checkbox
     btn.innerHTML = '<i class="ti ti-adjustments" style="font-size:11px"></i> '+list.length+'/'+total;
   }
   await saveCalendarEvents();
@@ -3361,21 +3375,17 @@ async function loadAccommodationUsage(s){
       return;
     }
 
+    // Official accommodations section
+    let officialHtml;
     if(!stuAccomm.length){
-      el.innerHTML = `<div class="card-title"><i class="ti ti-clipboard-check"></i> Testing Accommodation Usage <span style="font-weight:400;color:var(--text3);text-transform:none;font-size:11px">— for annual meeting documentation</span></div>
-        <div style="color:var(--text3);font-size:13px">${s.name.split(' ')[0]} attended ${totalAttended} testing session${totalAttended!==1?'s':''}, but has no Testing Accommodations recorded on their profile.</div>`;
-      return;
-    }
-
-    const usage = stuAccomm.map(a=>{
-      const usedCount = attendedEvents.filter(ev=>(ev.attendance[s.id].accommodationsUsed||[]).includes(a)).length;
-      const pct = Math.round(usedCount/totalAttended*100);
-      return {accomm:a, usedCount, pct};
-    }).sort((a,b)=>a.pct-b.pct);
-
-    el.innerHTML = `<div class="card-title"><i class="ti ti-clipboard-check"></i> Testing Accommodation Usage <span style="font-weight:400;color:var(--text3);text-transform:none;font-size:11px">— for annual meeting documentation</span></div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Based on ${totalAttended} recorded testing center visit${totalAttended!==1?'s':''}</div>
-      ${usage.map(u=>{
+      officialHtml = `<div style="color:var(--text3);font-size:13px">${s.name.split(' ')[0]} has no Testing Accommodations recorded on their profile.</div>`;
+    } else {
+      const usage = stuAccomm.map(a=>{
+        const usedCount = attendedEvents.filter(ev=>(ev.attendance[s.id].accommodationsUsed||[]).includes(a)).length;
+        const pct = Math.round(usedCount/totalAttended*100);
+        return {accomm:a, usedCount, pct};
+      }).sort((a,b)=>a.pct-b.pct);
+      officialHtml = usage.map(u=>{
         const color = u.pct>=80?'#3B6D11':u.pct>=50?'#854F0B':'#A32D2D';
         return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <div style="font-size:13px;flex:1">${u.accomm}</div>
@@ -3385,7 +3395,22 @@ async function loadAccommodationUsage(s){
             <div style="width:${u.pct}%;height:100%;background:${color};border-radius:4px"></div>
           </div>
         </div>`;
-      }).join('')}`;
+      }).join('');
+    }
+
+    // Pilot tracking section — always checked, regardless of official accommodations
+    const pilotUsedCount = attendedEvents.filter(ev=>(ev.attendance[s.id].accommodationsUsed||[]).includes(PILOT_ACCOMM_NAME)).length;
+    const pilotHtml = pilotUsedCount
+      ? `<div style="font-size:13px">Used in <strong>${pilotUsedCount} of ${totalAttended}</strong> attended testing session${totalAttended!==1?'s':''} (${Math.round(pilotUsedCount/totalAttended*100)}%).</div>`
+      : `<div style="color:var(--text3);font-size:13px">Not used with ${s.name.split(' ')[0]} yet.</div>`;
+
+    el.innerHTML = `<div class="card-title"><i class="ti ti-clipboard-check"></i> Testing Accommodation Usage <span style="font-weight:400;color:var(--text3);text-transform:none;font-size:11px">— for annual meeting documentation</span></div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Based on ${totalAttended} recorded testing center visit${totalAttended!==1?'s':''}</div>
+      ${officialHtml}
+      <div style="margin-top:16px;padding-top:12px;border-top:1px dashed var(--border)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${PILOT_ACCOMM_NAME} <span style="font-weight:400;text-transform:none;color:var(--text3)">— pilot, not an official accommodation</span></div>
+        ${pilotHtml}
+      </div>`;
   } catch(err){
     el.innerHTML = `<div class="card-title"><i class="ti ti-clipboard-check"></i> Testing Accommodation Usage</div>
       <div style="color:#A32D2D;font-size:13px">Could not load attendance data.</div>`;
