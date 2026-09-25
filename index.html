@@ -4000,6 +4000,14 @@ function editCalEvent(id){
         </div></div>
       <div style="grid-column:1/-1"><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Notes</label>
         <input type="text" id="edit_notes" value="${ev.notes||''}" placeholder="Optional" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
+      <div style="grid-column:1/-1;padding-top:10px;border-top:1px dashed var(--border2)">
+        <label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Add another date for this same test</label>
+        <div style="display:flex;gap:6px">
+          <input type="date" id="edit_add_date" style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
+          <button type="button" class="btn btn-sm" onclick="duplicateCalEventToDate('${id}')">+ Add date</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">This test is already approved for ${ev.date||'the date above'}. If it's also happening on another day (e.g. an A-day/B-day repeat), add that date here — it creates a separate approved event with the same teacher/course/period, so Testing Center Prep tracks attendance separately per day.</div>
+      </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px">
       <button class="btn" onclick="document.getElementById('editCalModal').remove()">Cancel</button>
@@ -4007,6 +4015,27 @@ function editCalEvent(id){
     </div>
   </div>`;
   document.body.appendChild(modal);
+}
+
+async function duplicateCalEventToDate(id){
+  const ev = calendarEvents.find(e=>e.id===id);
+  if(!ev) return;
+  const newDate = document.getElementById('edit_add_date')?.value;
+  if(!newDate){ alert('Pick a date first.'); return; }
+  if(calendarEvents.some(e=>e.date===newDate && e.teacher===ev.teacher && e.class===ev.class && e.period===ev.period)){
+    alert('There is already an approved event for this class/period on that date.');
+    return;
+  }
+  const baseId = ev.id.replace(/_\d{4}-\d{2}-\d{2}$/,'');
+  const clone = Object.assign({}, ev, {
+    id: baseId+'_'+newDate,
+    date: newDate,
+    approvedAt: new Date().toISOString()
+  });
+  calendarEvents.push(clone);
+  await saveCalendarEvents();
+  document.getElementById('editCalModal')?.remove();
+  renderApprovedEvents();
 }
 
 function editUpdateCourses(){
