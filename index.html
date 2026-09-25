@@ -3557,11 +3557,45 @@ async function loadCalendarEvents(){
   if(btn){ btn.innerHTML='<i class="ti ti-refresh"></i> Sync from Google Calendar'; btn.disabled=false; }
 }
 
+function peDateChipsHtml(dates, idx){
+  return (dates||[]).map(d=>{
+    const label = d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) : d;
+    return `<span style="font-size:12px;padding:3px 10px;border-radius:20px;background:#e8f0f8;color:var(--navy);cursor:pointer" onclick="removePeDate(${idx},'${d}')">${label} &times;</span>`;
+  }).join('');
+}
+
+function addPeDate(idx){
+  const input = document.getElementById('pe_dateinput_'+idx);
+  const val = input?.value;
+  if(!val) return;
+  const e = pendingEvents[idx];
+  if(!e._dates) e._dates = [];
+  if(!e._dates.includes(val)){
+    e._dates.push(val);
+    e._dates.sort();
+  }
+  const chipsEl = document.getElementById('pe_dates_'+idx);
+  if(chipsEl) chipsEl.innerHTML = peDateChipsHtml(e._dates, idx);
+}
+
+function removePeDate(idx, date){
+  const e = pendingEvents[idx];
+  if(!e) return;
+  e._dates = (e._dates||[]).filter(d=>d!==date);
+  const chipsEl = document.getElementById('pe_dates_'+idx);
+  if(chipsEl) chipsEl.innerHTML = peDateChipsHtml(e._dates, idx);
+}
+
 function renderPendingEvents(){
   const list = document.getElementById('pendingList');
   const badge = document.getElementById('pendingBadge');
   if(!list) return;
   badge.textContent = pendingEvents.length;
+
+  // Every pending event starts with its one calendar-detected date
+  // as the first "chip" — Test Date(s) lets Betsy add more (e.g. an
+  // A-day AND a B-day date for the same class) before approving.
+  pendingEvents.forEach(e=>{ if(!e._dates) e._dates = e.date ? [e.date] : []; });
 
   if(!pendingEvents.length){
     list.innerHTML='<div style="color:var(--text3);font-size:13px;padding:8px 0">No events pending review.</div>';
@@ -3612,6 +3646,14 @@ function renderPendingEvents(){
               </label>`;
             }).join('')}
           </div>
+        </div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Test Date(s)</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="date" id="pe_dateinput_${i}" style="padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px">
+            <button type="button" class="btn btn-sm" onclick="addPeDate(${i})">+ Add date</button>
+          </div>
+          <div id="pe_dates_${i}" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${peDateChipsHtml(e._dates,i)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:3px">Add more than one date if this same class is testing on both an A day and a B day — each date gets its own row in Testing Center Prep so attendance is tracked per day.</div>
         </div>
         <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Notes</label>
           <input type="text" id="pe_notes_${i}" value="${e.description||''}" placeholder="Optional" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px"></div>
@@ -3688,25 +3730,36 @@ async function approveEvent(idx){
   const course = document.getElementById('pe_course_'+idx)?.value||document.getElementById('pe_class_'+idx)?.value||e.title;
   const selectedPeriods = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('pe_p'+p+'_'+idx)?.checked).map(String);
   const period = selectedPeriods.join(',');
-  
+  const type = document.getElementById('pe_type_'+idx)?.value||'Test';
+  const notes = document.getElementById('pe_notes_'+idx)?.value||'';
+
   // Store matching student IDs directly on the event
   const matchingStudentIds = getMatchingStudentIds(teacher, course, selectedPeriods);
-  
-  const approved = {
-    id: e.id,
-    date: e.date,
-    type: document.getElementById('pe_type_'+idx)?.value||'Test',
-    class: course,
-    teacher: teacher,
-    period: period,
-    studentIds: matchingStudentIds,
-    level: e.source||'',
-    notes: document.getElementById('pe_notes_'+idx)?.value||'',
-    source: 'calendar',
-    approved: true,
-    approvedAt: new Date().toISOString()
-  };
-  calendarEvents.push(approved);
+
+  // Test Date(s) — usually just the one date the calendar event came
+  // in on, but there can be more than one (e.g. the same class
+  // testing on both an A day and a B day). Each date becomes its
+  // own approved event, so Testing Center Prep can track attendance
+  // and accommodations used separately per actual day.
+  const dates = (e._dates && e._dates.length) ? e._dates.slice() : [e.date];
+
+  dates.forEach((d,di)=>{
+    calendarEvents.push({
+      id: dates.length>1 ? e.id+'_'+d : e.id,
+      date: d,
+      type: type,
+      class: course,
+      teacher: teacher,
+      period: period,
+      studentIds: matchingStudentIds,
+      level: e.source||'',
+      notes: notes,
+      source: 'calendar',
+      approved: true,
+      approvedAt: new Date().toISOString()
+    });
+  });
+
   pendingEvents.splice(idx,1);
   await saveCalendarEvents();
   renderPendingEvents();
@@ -3865,20 +3918,24 @@ async function approveAll(){
     const notes = document.getElementById('pe_notes_'+i)?.value || e.description || '';
     const selectedPeriods = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('pe_p'+p+'_'+i)?.checked).map(String);
     const period = selectedPeriods.join(',');
-    
-    calendarEvents.push({
-      id: e.id,
-      date: e.date,
-      type: type,
-      class: course,
-      teacher: teacher,
-      period: period,
-      studentIds: getMatchingStudentIds(teacher, course, selectedPeriods),
-      level: e.source || '',
-      notes: notes,
-      source: 'calendar',
-      approved: true,
-      approvedAt: new Date().toISOString()
+    const dates = (e._dates && e._dates.length) ? e._dates.slice() : [e.date];
+    const matchingStudentIds = getMatchingStudentIds(teacher, course, selectedPeriods);
+
+    dates.forEach(d=>{
+      calendarEvents.push({
+        id: dates.length>1 ? e.id+'_'+d : e.id,
+        date: d,
+        type: type,
+        class: course,
+        teacher: teacher,
+        period: period,
+        studentIds: matchingStudentIds,
+        level: e.source || '',
+        notes: notes,
+        source: 'calendar',
+        approved: true,
+        approvedAt: new Date().toISOString()
+      });
     });
   });
   pendingEvents = [];
