@@ -183,6 +183,18 @@
       var usesWordBank = (q.type === 'shortanswer' && activeWordBank);
       stepWordBanks[qIndex] = usesWordBank ? { key: activeWbKey, words: activeWordBank } : null;
 
+      // A matching question's own answer-choice list works the same
+      // way as a word bank — each answer should really only get used
+      // once — so it gets its own key (separate from any shortanswer
+      // word bank above) and shows the same floating, crossed-off-as-
+      // used strip in paced mode.
+      var matchWbKey = null;
+      if(q.type === 'matching'){
+        wbKeyCounter++;
+        matchWbKey = 'wb' + wbKeyCounter;
+        stepWordBanks[qIndex] = { key: matchWbKey, words: q.columns.slice() };
+      }
+
       var qHtml = '<div class="card" data-qtype="' + q.type + '" data-qid="' + qid + '">';
       qHtml += '<div class="qnum">Question ' + (qIndex + 1) + '</div>';
       qHtml += '<div class="qtext">' + escapeHtml(q.text) + '</div>';
@@ -204,7 +216,7 @@
         qHtml += '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Match each item below to one of: ' + q.columns.map(escapeHtml).join(', ') + '</div>';
         q.rows.forEach(function(rowText, ri){
           qHtml += '<div style="margin-bottom:10px"><div style="font-size:14px;margin-bottom:4px">' + escapeHtml(rowText) + '</div>';
-          qHtml += '<select name="' + qid + '_row' + ri + '"><option value="">Choose...</option>';
+          qHtml += '<select name="' + qid + '_row' + ri + '" data-wbkey="' + matchWbKey + '"><option value="">Choose...</option>';
           q.columns.forEach(function(c){ qHtml += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; });
           qHtml += '</select></div>';
         });
