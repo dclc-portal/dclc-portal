@@ -17,6 +17,7 @@
   .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 12px; }
   .qnum { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; margin-bottom: 4px; }
   .qtext { font-size: 15px; line-height: 1.5; margin-bottom: 10px; white-space: pre-line; }
+  .qimg { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; margin: 4px 0 14px; }
   .sectionheader { font-size: 16px; font-weight: 700; color: var(--navy); margin: 22px 0 6px; padding-bottom: 6px; border-bottom: 2px solid var(--navy); white-space: pre-line; }
   select, input[type=text], textarea {
     width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; font-family: Arial;
@@ -55,6 +56,12 @@
   .wordBankLabel { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text3); width: 100%; margin-bottom: 2px; }
   .wbWord { font-size: 13px; padding: 4px 10px; border-radius: 14px; background: #f0f6ff; color: var(--navy); border: 1px solid #d7e6fb; }
   .wbWord.used { background: #f0f0ee; color: #bbb; text-decoration: line-through; border-color: #e6e6e2; }
+  .reviewRow { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+  .reviewRow:hover { border-color: var(--navy); }
+  .reviewRowNum { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; margin-bottom: 2px; }
+  .reviewRowText { font-size: 14px; margin-bottom: 6px; }
+  .reviewRowAns { font-size: 13px; font-weight: 700; color: var(--navy); }
+  .reviewRowAns.unanswered { color: var(--danger); font-weight: 400; font-style: italic; }
 </style>
 </head>
 <body>
@@ -84,6 +91,7 @@
 
   <div id="submitBar">
     <div class="inner">
+      <button class="secondary" id="reviewBtn" onclick="openReviewScreen()" style="display:none;margin-bottom:8px">Review your answers</button>
       <button class="primary" id="submitBtn" onclick="submitTest()">Submit test</button>
       <div id="error"></div>
     </div>
@@ -95,6 +103,14 @@
       <button class="primary" id="paceNextBtn" onclick="paceNext()">Next &rarr;</button>
     </div>
   </div>
+</div>
+
+<div class="wrap" id="reviewScreen" style="display:none">
+  <h1>Review your answers</h1>
+  <p class="sub">Tap any question to go back and change it. Come back to this list any time before you submit.</p>
+  <div id="reviewList"></div>
+  <button class="primary" onclick="submitTest()" style="margin-top:14px">Submit test</button>
+  <button class="secondary" onclick="closeReviewScreen()" style="margin-top:10px">Back to the test</button>
 </div>
 
 <div id="doneScreen">
@@ -168,6 +184,9 @@
     testData.questions.forEach(function(q){
       if(q.type === 'sectionheader'){
         pendingHeaderHtml += '<div class="sectionheader">' + escapeHtml(q.text) + '</div>';
+        if(q.image){
+          pendingHeaderHtml += '<img class="qimg" src="' + escapeHtml(q.image) + '" alt="Reference image" loading="lazy">';
+        }
         var m = q.text.match(/word bank[:\s]*([\s\S]*)/i);
         if(m){
           activeWordBank = m[1].trim().split(/\s+/).filter(function(w){return w.length;});
@@ -198,6 +217,9 @@
       var qHtml = '<div class="card" data-qtype="' + q.type + '" data-qid="' + qid + '">';
       qHtml += '<div class="qnum">Question ' + (qIndex + 1) + '</div>';
       qHtml += '<div class="qtext">' + escapeHtml(q.text) + '</div>';
+      if(q.image){
+        qHtml += '<img class="qimg" src="' + escapeHtml(q.image) + '" alt="Question image" loading="lazy">';
+      }
 
       if(q.type === 'multiplechoice' || q.type === 'truefalse'){
         var opts = q.type === 'truefalse' ? ['True', 'False'] : q.options;
@@ -291,6 +313,7 @@
     document.getElementById('paceNextBtn').style.display = isLast ? 'none' : 'block';
     document.getElementById('paceNav').style.display = isLast ? 'none' : 'block';
     document.getElementById('submitBar').style.display = isLast ? 'block' : 'none';
+    document.getElementById('reviewBtn').style.display = isLast ? 'block' : 'none';
 
     refreshWordBankStrip();
   }
@@ -309,6 +332,68 @@
       showStep(currentStepIndex);
       window.scrollTo(0, 0);
     }
+  }
+
+  /** Builds the "Review your answers" overview: every question with its current
+      answer status, tap any row to jump straight back to that question. */
+  function openReviewScreen(){
+    var listEl = document.getElementById('reviewList');
+    var html = '';
+    var qNum = 0;
+    document.querySelectorAll('#questions .step').forEach(function(stepEl, idx){
+      var card = stepEl.querySelector('.card');
+      if(!card) return;
+      qNum++;
+      var qtextEl = card.querySelector('.qtext');
+      var qtext = qtextEl ? qtextEl.textContent : '';
+      var summary = summarizeStepAnswer(card);
+      var unanswered = (summary === 'Not answered');
+      html += '<div class="reviewRow" onclick="jumpToStep(' + idx + ')">' +
+        '<div class="reviewRowNum">Question ' + qNum + '</div>' +
+        '<div class="reviewRowText">' + escapeHtml(qtext.length > 90 ? qtext.slice(0, 90) + '…' : qtext) + '</div>' +
+        '<div class="reviewRowAns' + (unanswered ? ' unanswered' : '') + '">' + escapeHtml(summary) + '</div>' +
+        '</div>';
+    });
+    listEl.innerHTML = html;
+    document.getElementById('testWrap').style.display = 'none';
+    document.getElementById('reviewScreen').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  /** Short human-readable summary of what a student has entered for one question card. */
+  function summarizeStepAnswer(card){
+    var qtype = card.getAttribute('data-qtype');
+    if(qtype === 'matching'){
+      var selects = card.querySelectorAll('select');
+      if(!selects.length) return 'Not answered';
+      var answered = 0;
+      selects.forEach(function(s){ if(s.value) answered++; });
+      if(answered === 0) return 'Not answered';
+      return answered + ' of ' + selects.length + ' matched';
+    } else if(qtype === 'multiplechoice' || qtype === 'truefalse'){
+      var checked = card.querySelector('input[type="radio"]:checked');
+      return checked ? checked.value : 'Not answered';
+    } else {
+      var field = card.querySelector('input[type="text"], textarea, select');
+      return (field && field.value) ? field.value : 'Not answered';
+    }
+  }
+
+  /** Jumps from the review screen straight to a given question step. */
+  function jumpToStep(idx){
+    document.getElementById('reviewScreen').style.display = 'none';
+    document.getElementById('testWrap').style.display = 'block';
+    currentStepIndex = idx;
+    showStep(idx);
+    window.scrollTo(0, 0);
+  }
+
+  /** Returns to the test from the review screen without changing the current question. */
+  function closeReviewScreen(){
+    document.getElementById('reviewScreen').style.display = 'none';
+    document.getElementById('testWrap').style.display = 'block';
+    showStep(currentStepIndex);
+    window.scrollTo(0, 0);
   }
 
   /** Shows the word bank for the CURRENT step's question, if it uses one, with already-picked words crossed out — checked across every question sharing that same bank, not just this one. */
