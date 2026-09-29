@@ -3517,6 +3517,7 @@ function openCalendar(){
           <input type="checkbox" id="calShowPast" onchange="renderApprovedEvents()"> Show past events
         </label>
         <button class="btn btn-sm" style="color:#A32D2D;border-color:#F0959580" onclick="clearPastEvents()"><i class="ti ti-trash"></i> Clear past events</button>
+        <button class="btn btn-sm" onclick="recomputeAllMatches()"><i class="ti ti-refresh"></i> Recompute all matches</button>
       </div>
       <div id="approvedList"><div style="color:var(--text3);font-size:13px;padding:8px 0">No approved events yet.</div></div>
     </div>
@@ -3934,6 +3935,39 @@ async function saveCalendarEvents(){
   try{
     await drivePost({ action:'saveCalendarEvents', events:calendarEvents });
   } catch(e){ console.warn('Calendar save failed:', e); }
+}
+
+// Re-runs student matching for every upcoming, not-yet-completed approved event,
+// using whatever is currently in student records (teacherList / STUDENT_SCHEDULES).
+// Use this any time student data or schedules change after events were already
+// approved — approving only computes matches once, so edits made afterward don't
+// retroactively apply until this runs (or the event is individually re-saved).
+async function recomputeAllMatches(){
+  const nowTS = new Date(); nowTS.setHours(0,0,0,0);
+  const targets = calendarEvents.filter(e=>{
+    const isPast = e.date && new Date(e.date+'T12:00:00') < nowTS;
+    return e.teacher && e.class && !e.completed && !isPast;
+  });
+  if(!targets.length){ alert('No upcoming approved events to recompute.'); return; }
+  if(!confirm(`Recompute student matches for ${targets.length} upcoming approved event${targets.length!==1?'s':''}? This won't touch past or completed events.`)) return;
+
+  let changed = 0;
+  targets.forEach(e=>{
+    const periods = e.period ? e.period.split(',').map(p=>p.trim()).filter(Boolean) : [];
+    const before = JSON.stringify((e.studentIds||[]).slice().sort());
+    const after = getMatchingStudentIds(e.teacher, e.class, periods);
+    if(JSON.stringify(after.slice().sort()) !== before) changed++;
+    e.studentIds = after;
+  });
+
+  const result = await drivePost({ action:'saveCalendarEvents', events:calendarEvents });
+  if(!result || result.ok===false){
+    alert('Recompute ran locally, but saving back to Drive failed — nothing was actually persisted. Check your connection and try again.');
+    return;
+  }
+  renderApprovedEvents();
+  buildPrepView();
+  alert(`Done. Checked ${targets.length} upcoming event${targets.length!==1?'s':''}; ${changed} had different student matches and were updated.`);
 }
 
 function showAddEventForm(){
