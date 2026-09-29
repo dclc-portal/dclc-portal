@@ -531,8 +531,17 @@ const ACCOMM={
 
 // Pilot tracking item — NOT part of any student's official accommodations list.
 // Always selectable for any student in the testing prep accommodation modal,
-// purely to gather usage data ahead of deciding whether to formalize it.
+// to gather usage data ahead of deciding whether to formalize it next year.
+// Checking it ALSO functions as the real per-test pacing switch: the Testing
+// Hub reads ev.attendance[studentId].accommodationsUsed for this name to
+// decide whether to serve that student's test one question at a time.
 const PILOT_ACCOMM_NAME = 'One Question at a Time (Pilot)';
+
+// Accommodation(s) that suggest a student should be flagged for Digital test
+// delivery. Checking one of these in the student form prompts (but does not
+// force) a switch to Digital. List can grow as more accommodations are
+// reviewed — for now scoped to Oral administration only.
+const DIGITAL_NUDGE_ACCOMMS = ['Oral administration of tests/assignments'];
 
 const AVATARS=[{bg:'#e8f0f8',fg:'#185FA5'},{bg:'#E1F5EE',fg:'#0F6E56'},{bg:'#FAEEDA',fg:'#854F0B'},{bg:'#EEEDFE',fg:'#534AB7'},{bg:'#FAECE7',fg:'#993C1D'},{bg:'#EAF3DE',fg:'#3B6D11'}];
 
@@ -738,6 +747,10 @@ const gl = g => g>=90?'A':g>=80?'B':g>=70?'C':'!';
 const sc = v => v>=115?'#0F6E56':v>=85?'#185FA5':v>=70?'#854F0B':'#A32D2D';
 const sb = v => v>=130?'Very Superior':v>=115?'Above Avg':v>=85?'Average':v>=70?'Below Avg':'Very Low';
 const tierBadge = t => ({ 'Tier 1':'<span class="badge b-t1">Tier 1 – Testing</span>', 'Tier 2':'<span class="badge b-t2">Tier 2 – Elective</span>', 'Monitor':'<span class="badge b-mon">Monitor</span>', 'Dyslexia Therapy':'<span class="badge b-dys">Dyslexia Therapy</span>' }[t]||'');
+const deliveryBadge = d => ({
+  'paper':'<span class="badge" style="background:#e8f0f8;color:#185FA5">📄 Paper</span>',
+  'digital':'<span class="badge" style="background:#E1F5EE;color:#0F6E56">💻 Digital</span>'
+}[d] || '<span class="badge" style="background:#FCEBEB;color:#A32D2D">⚠ Needs review</span>');
 function getAccommCat(name){ for(const[cat,items]of Object.entries(ACCOMM)){if(items.includes(name))return cat;} return'General'; }
 
 function setFilter(el,val){
@@ -1692,6 +1705,22 @@ function openStats(){
 }
 
 // ── FORMS ──────────────────────────────────────────────────────
+// Toggling one of the DIGITAL_NUDGE_ACCOMMS chips on suggests (but doesn't
+// force) switching Test delivery to Digital, since that accommodation
+// typically requires the digital/read-write system.
+function toggleAccommChip(chipEl){
+  const turningOn = !chipEl.classList.contains('on');
+  chipEl.classList.toggle('on');
+  if(turningOn){
+    const deliverySel = document.getElementById('f_delivery');
+    if(deliverySel && deliverySel.value !== 'digital'){
+      if(confirm('This accommodation usually means testing on the computer. Switch this student\'s Test delivery to Digital now?')){
+        deliverySel.value = 'digital';
+      }
+    }
+  }
+}
+
 function showStudentForm(id=null){
   editingId=id; const s=id?students.find(x=>x.id===id):{};
   document.getElementById('formTitle').textContent=id?'Edit student':'Add student';
@@ -1705,6 +1734,11 @@ function showStudentForm(id=null){
         <option value="Tier 2"${s.tier==='Tier 2'?' selected':''}>Tier 2 – Elective class</option>
         <option value="Monitor"${s.tier==='Monitor'?' selected':''}>Monitor</option>
         <option value="Dyslexia Therapy"${s.tier==='Dyslexia Therapy'?' selected':''}>Dyslexia Therapy</option>
+      </select></div>
+      <div class="ff"><label>Test delivery</label><select id="f_delivery">
+        <option value=""${!s.testDelivery?' selected':''}>⚠ Needs review</option>
+        <option value="paper"${s.testDelivery==='paper'?' selected':''}>📄 Paper</option>
+        <option value="digital"${s.testDelivery==='digital'?' selected':''}>💻 Digital</option>
       </select></div>
 
       <div class="ff"><label>Last FIE date</label><input id="f_lastFie" type="date" value="${s.lastFie||''}"></div>
@@ -1725,7 +1759,7 @@ function showStudentForm(id=null){
           ${Object.entries(ACCOMM).map(([cat,items])=>`
             <div style="margin-bottom:10px">
               <div style="font-size:11px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid var(--border)">${cat}</div>
-              <div class="chip-group">${items.map(a=>`<span class="chip${(migrateAccomm(s.accommodations||[])).includes(a)?' on':''}" data-g="accomm" onclick="this.classList.toggle('on')">${a}</span>`).join('')}</div>
+              <div class="chip-group">${items.map(a=>`<span class="chip${(migrateAccomm(s.accommodations||[])).includes(a)?' on':''}" data-g="accomm" onclick="${DIGITAL_NUDGE_ACCOMMS.includes(a)?'toggleAccommChip(this)':"this.classList.toggle('on')"}">${a}</span>`).join('')}</div>
             </div>`).join('')}
         </div>
       </div>
@@ -1771,6 +1805,7 @@ function saveStudent(){
   const teacherList=[...document.querySelectorAll('#formBody .chip[data-g="teacher"].on')].map(c=>c.textContent);
 
   const s={id:editingId||'s'+Date.now(),name,grade:get('f_grade'),tier:get('f_tier'),
+    testDelivery:get('f_delivery'),
     lastFie:get('f_lastFie'),fieDue:get('f_fieDue'),
     parent1:get('f_parent1'),parent2:get('f_parent2'),
     diagnoses,accommodations:accomms,
@@ -2778,6 +2813,7 @@ async function buildPrepView(){
                     <input type="checkbox" ${att.attended?'checked':''} onchange="toggleAttendance('${ev.id}','${s.id}',this.checked)" style="width:14px;height:14px">
                     <span style="${att.attended?'font-weight:700;color:var(--text)':''}">${s.name.split(' ')[0]} ${s.name.split(' ').slice(-1)[0]}</span>
                   </label>
+                  ${deliveryBadge(s.testDelivery)}
                   <button ${!att.attended?'disabled':''} onclick="openAccommModal('${ev.id}','${s.id}','${s.name.replace(/'/g,"\\'")}')" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid ${att.attended?'var(--border2)':'var(--border)'};background:${att.attended?'var(--bg2)':'transparent'};color:${att.attended?'var(--text2)':'var(--text3)'};cursor:${att.attended?'pointer':'default'};opacity:${att.attended?'1':'.5'};flex-shrink:0" id="accommBtn_${ev.id}_${s.id}"><i class="ti ti-adjustments" style="font-size:11px"></i> ${usedCount}/${totalSlots}</button>
                 </div>`;
               }).join('')}
@@ -2795,9 +2831,15 @@ async function buildPrepView(){
     });
     const topAccomm = Object.entries(accommCounts).sort((a,b)=>b[1]-a[1]);
 
+    // Delivery counts, for a quick "how many do I print" summary
+    const paperCount = matchedStudents.filter(s=>s.testDelivery==='paper').length;
+    const digitalCount = matchedStudents.filter(s=>s.testDelivery==='digital').length;
+    const reviewCount = matchedStudents.length - paperCount - digitalCount;
+
     const TYPES={Test:'type-test',Quiz:'type-quiz',Assignment:'type-assign',Project:'type-project'};
     const typeClass=TYPES[ev.type]||'type-other';
     const isComplete = !!ev.completed;
+    const isPaperOnly = !!ev.paperOnly;
 
     return sectionHeader + `<div id="prepCard_${ev.id}" style="border:1px solid ${isComplete?'#97C459':'var(--border)'};border-radius:10px;padding:14px;margin-bottom:12px;background:${isComplete?'#F5FAF0':'var(--bg)'};opacity:${isComplete?'0.7':'1'}">
       <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap">
@@ -2810,13 +2852,16 @@ async function buildPrepView(){
             <span style="color:${urgency};font-weight:700">${dateStr}</span>
             <span style="color:var(--text3)">${daysUntil===0?'Today':daysUntil===1?'Tomorrow':'In '+daysUntil+' days'}</span>
             ${isComplete?'<span style="color:#3B6D11;font-weight:700">✓ Completed</span>':''}
+            ${isPaperOnly?`<span style="color:#854F0B;font-weight:700" title="${(ev.paperOnlyReason||'').replace(/"/g,'&quot;')}">📄 Paper only${ev.paperOnlyReason?' — '+ev.paperOnlyReason:''}</span>`:''}
             ${ev.notes?`<span>${ev.notes}</span>`:''}
           </div>
+          ${!isPaperOnly && matchedStudents.length ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">📄 Printing: <b>${paperCount}</b> &nbsp;·&nbsp; 💻 Digital: <b>${digitalCount}</b>${reviewCount?` &nbsp;·&nbsp; <span style="color:#A32D2D">⚠ Needs review: <b>${reviewCount}</b></span>`:''}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="event-badge ${typeClass}" style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700">${ev.type||'Other'}</span>
           <span style="font-size:24px;font-weight:700;color:var(--navy)">${matchedStudents.length}</span>
           <span style="font-size:11px;color:var(--text2)">student${matchedStudents.length!==1?'s':''}</span>
+          <button class="btn btn-sm" style="color:#854F0B;border-color:#EF9F2780;font-size:11px" onclick="markPaperOnly('${ev.id}')">Paper only</button>
           <button class="btn btn-sm" style="color:#854F0B;border-color:#EF9F2780;font-size:11px" onclick="markNotInLC('${ev.id}')">Not in LC</button>
         </div>
       </div>
@@ -2839,6 +2884,18 @@ async function buildPrepView(){
       </div>
     </div>`;
   }).filter(Boolean).join('') || '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px">No upcoming events match students in your caseload.</div>';
+}
+
+async function markPaperOnly(id){
+  const ev = calendarEvents.find(e=>e.id===id);
+  if(!ev) return;
+  const reason = prompt('Why is this test staying on paper for everyone (e.g. "Not ready to digitize math tests yet")? This is just for your records so you can review patterns later.', ev.paperOnlyReason||'');
+  if(reason===null) return; // cancelled
+  if(!reason.trim()){ alert('Please enter a reason so this can be reviewed later.'); return; }
+  ev.paperOnly = true;
+  ev.paperOnlyReason = reason.trim();
+  await saveCalendarEvents();
+  buildPrepView();
 }
 
 async function markNotInLC(id){
@@ -2910,7 +2967,7 @@ function openAccommModal(eventId, studentId, studentName){
       </label>`).join('')}
     </div>
     <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;padding-top:10px;border-top:1px dashed var(--border)">Pilot tracking <span style="font-weight:400;text-transform:none;color:var(--text3)">— not an official accommodation</span></div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Available for any student, to gather usage data ahead of April meetings.</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Available for any student, to gather usage data ahead of April meetings. Checking this also turns on one-question-at-a-time pacing for this student on this test in the Testing Hub.</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
         <input type="checkbox" ${att.accommodationsUsed.includes(PILOT_ACCOMM_NAME)?'checked':''} onchange="toggleAccommUsed('${eventId}','${studentId}','${PILOT_ACCOMM_NAME}',this.checked)" style="width:16px;height:16px">
