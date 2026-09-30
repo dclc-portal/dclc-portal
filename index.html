@@ -2657,7 +2657,17 @@ async function buildPrepView(){
     events = calendarEvents.filter(e=>{
       const d = new Date(e.date+'T12:00:00');
       return d >= todayCut && d <= fiveDaysCut && !e.notInLC;
-    }).sort((a,b)=>a.date.localeCompare(b.date));
+    }).sort((a,b)=>{
+      // Day first, then by period so the list follows the flow of the school day.
+      // Multi-period events sort by their earliest period; events with no period go last.
+      const firstPeriod = e => {
+        const ps = String(e.period||'').split(',').map(p=>parseInt(p,10)).filter(n=>!isNaN(n));
+        return ps.length ? Math.min.apply(null, ps) : 99;
+      };
+      return a.date.localeCompare(b.date)
+        || firstPeriod(a) - firstPeriod(b)
+        || String(a.teacher||'').localeCompare(String(b.teacher||''));
+    });
   } catch(err){
     el.innerHTML='<div style="color:#A32D2D;font-size:13px">Could not load calendar events.</div>';
     return;
