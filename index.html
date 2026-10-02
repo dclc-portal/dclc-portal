@@ -2922,6 +2922,22 @@ async function markNotInLC(id){
   }
 }
 
+// Undo for "Not in LC" — brings the event back into Testing Center Prep
+// (and the Testing Hub's build list).
+async function restoreInLC(id){
+  const ev = calendarEvents.find(e=>e.id===id);
+  if(!ev) return;
+  delete ev.notInLC;
+  const result = await drivePost({ action:'saveCalendarEvents', events:calendarEvents });
+  if(!result || result.ok===false){
+    ev.notInLC = true;
+    alert('Could not save — nothing was changed. Check your connection and try again.');
+    return;
+  }
+  renderApprovedEvents();
+  if(document.getElementById('prepResults')) buildPrepView();
+}
+
 async function toggleTestComplete(id, isChecked){
   const ev = calendarEvents.find(e=>e.id===id);
   if(!ev) return;
@@ -3917,6 +3933,7 @@ function renderApprovedEvents(){
           ${e.notes?`<span>${e.notes.slice(0,50)}</span>`:''}
         </div>
       </div>
+      ${e.notInLC?`<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;flex-shrink:0;background:#FCEBEB;color:#A32D2D">Not in LC</span><button class="btn btn-sm" style="flex-shrink:0" onclick="restoreInLC('${e.id}')">Put back in LC</button>`:''}
       <span class="event-badge ${typeClass}" style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;flex-shrink:0">${e.type}</span>
       <button class="btn btn-sm" style="flex-shrink:0" onclick="editCalEvent('${e.id}')"><i class="ti ti-edit"></i></button>
       <button class="btn btn-sm" style="color:#A32D2D;border-color:#F0959580;flex-shrink:0" onclick="deleteCalEvent('${e.id}')"><i class="ti ti-trash"></i></button>
