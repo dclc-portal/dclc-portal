@@ -537,6 +537,17 @@ const ACCOMM={
 // decide whether to serve that student's test one question at a time.
 const PILOT_ACCOMM_NAME = 'One Question at a Time (Pilot)';
 
+// Which Fridays are A days vs B days this semester (Mon/Wed are always A,
+// Tue/Thu always B). Same list as the student Testing Center script —
+// UPDATE BOTH each semester when the new A/B Friday calendar comes out.
+// A Friday not listed here just shows every period that has a test.
+const FRIDAY_DAY_TYPES = {
+  '2026-08-14':'A','2026-08-21':'B','2026-08-28':'A','2026-09-04':'A','2026-09-11':'B',
+  '2026-09-18':'A','2026-09-25':'A','2026-10-02':'B','2026-10-09':'A','2026-10-16':'A',
+  '2026-10-23':'B','2026-10-30':'A','2026-11-06':'B','2026-11-13':'A','2026-11-20':'B',
+  '2026-12-04':'B','2026-12-11':'A'
+};
+
 // Accommodation(s) that suggest a student should be flagged for Digital test
 // delivery. Checking one of these in the student form prompts (but does not
 // force) a switch to Digital.
@@ -2679,24 +2690,11 @@ async function buildPrepView(){
   }
 
   const TESTING_ACCOMM = (ACCOMM['Testing Accommodations']||[]);
-  const todayStr = (function(){ const d=new Date(); d.setHours(0,0,0,0); return d.toISOString().slice(0,10); })();
-  let todaySectionShown = false;
-  let laterSectionShown = false;
+  const localISO = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const todayStr = localISO(new Date());
 
-  el.innerHTML = events.map((ev,ei)=>{
-    let sectionHeader = '';
-    if(ev.date === todayStr && !todaySectionShown){
-      todaySectionShown = true;
-      sectionHeader = '<div style="font-size:13px;font-weight:700;color:#A32D2D;text-transform:uppercase;letter-spacing:.5px;margin:4px 0 10px;padding-bottom:6px;border-bottom:2px solid #A32D2D">📍 Today</div>';
-    } else if(ev.date !== todayStr && !laterSectionShown){
-      laterSectionShown = true;
-      sectionHeader = (todaySectionShown ? '<div style="height:8px"></div>' : '') + '<div style="font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--navy)">Upcoming</div>';
-    }
-    const dateStr = new Date(ev.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-    const todayMid = new Date(); todayMid.setHours(0,0,0,0);
-    const evMid = new Date(ev.date+'T00:00:00');
-    const daysUntil = Math.round((evMid-todayMid)/(1000*60*60*24));
-    const urgency = daysUntil<=2?'#A32D2D':daysUntil<=5?'#854F0B':'#185FA5';
+  // Which DCLC students are on this event (stored at approval, or matched live).
+  const prepMatchedStudents = ev => {
 
     // Use stored student IDs if available (set during approval)
     let matchedStudents;
@@ -2783,120 +2781,156 @@ async function buildPrepView(){
     });
     matchedStudents = matchedStudentsResult;
     } // end else (no stored studentIds)
+    return matchedStudents;
+  };
 
-    // Group by period with A/B day
-    const byPeriod = {};
-    matchedStudents.forEach(s=>{
-      const period = getStudentPeriodForTeacher(s.name, ev.teacher);
-      const p = period || 'Unknown';
-      if(!byPeriod[p]) byPeriod[p] = [];
-      byPeriod[p].push(s);
+  // Bell schedule labels (MS and HS differ only in when 3rd/7th start).
+  const PERIOD_TIMES = {1:'8:00–9:30',2:'9:35–11:05',3:'11:10–1:35 (HS from 11:40)',4:'1:40–3:10',5:'8:00–9:30',6:'9:35–11:05',7:'11:10–1:35 (HS from 11:40)',8:'1:40–3:10'};
+  const PERIOD_RANGES = {1:['08:00','09:30'],2:['09:35','11:05'],3:['11:10','13:35'],4:['13:40','15:10'],5:['08:00','09:30'],6:['09:35','11:05'],7:['11:10','13:35'],8:['13:40','15:10']};
+  const nowHM = (()=>{ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); })();
+
+  // Group every event's students by date, then by the period they test in.
+  const days = {};
+  events.forEach(ev=>{
+    const studs = prepMatchedStudents(ev);
+    if(!studs.length) return;
+    const evPeriods = String(ev.period||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const byP = {};
+    studs.forEach(s=>{
+      let p = getStudentPeriodForTeacher(s.name, ev.teacher);
+      p = p ? String(p) : (evPeriods.length===1 ? evPeriods[0] : '?');
+      (byP[p] = byP[p] || []).push(s);
     });
-
-    // Sort periods and group into A/B day
-    const aDayPeriods = {};
-    const bDayPeriods = {};
-    const unknownPeriods = {};
-    Object.entries(byPeriod).forEach(([p, studs])=>{
-      const n = parseInt(p);
-      if(n>=1&&n<=4) aDayPeriods[p]=studs;
-      else if(n>=5&&n<=8) bDayPeriods[p]=studs;
-      else unknownPeriods[p]=studs;
+    const day = days[ev.date] = days[ev.date] || {};
+    Object.keys(byP).forEach(p=>{
+      (day[p] = day[p] || []).push({ ev, studs: byP[p], others: Object.keys(byP).filter(x=>x!==p).sort((a,b)=>(parseInt(a)||99)-(parseInt(b)||99)) });
     });
+  });
 
-    const renderPeriodGroup = (periods, label, color) => {
-      const entries = Object.entries(periods).sort((a,b)=>(parseInt(a[0])||99)-(parseInt(b[0])||99));
-      if(!entries.length) return '';
-      return `<div style="margin-bottom:8px">
-        <div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">${label}</div>
-        ${entries.map(([period,studs])=>`
-          <div style="margin-bottom:6px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-              <span style="font-size:12px;font-weight:700;color:var(--navy);min-width:65px;flex-shrink:0">Period ${period}</span>
-              <span style="font-size:12px;background:var(--navy);color:#fff;padding:1px 8px;border-radius:20px;flex-shrink:0">${studs.length}</span>
-            </div>
-            <div style="padding-left:73px;display:flex;flex-direction:column;gap:4px">
-              ${studs.map(s=>{
-                const att = (ev.attendance && ev.attendance[s.id]) || {attended:false, accommodationsUsed:[]};
-                const stuAccomm = (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a));
-                const usedCount = att.accommodationsUsed.length;
-                const totalSlots = stuAccomm.length + 1; // +1 for the always-available pilot checkbox
-                return `<div style="display:flex;align-items:center;gap:8px" id="stuRow_${ev.id}_${s.id}">
-                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;flex:1">
-                    <input type="checkbox" ${att.attended?'checked':''} onchange="toggleAttendance('${ev.id}','${s.id}',this.checked)" style="width:14px;height:14px">
-                    <span style="${att.attended?'font-weight:700;color:var(--text)':''}">${s.name.split(' ')[0]} ${s.name.split(' ').slice(-1)[0]}</span>
-                  </label>
-                  ${deliveryBadge(s.testDelivery)}
-                  <button ${!att.attended?'disabled':''} onclick="openAccommModal('${ev.id}','${s.id}','${s.name.replace(/'/g,"\\'")}')" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid ${att.attended?'var(--border2)':'var(--border)'};background:${att.attended?'var(--bg2)':'transparent'};color:${att.attended?'var(--text2)':'var(--text3)'};cursor:${att.attended?'pointer':'default'};opacity:${att.attended?'1':'.5'};flex-shrink:0" id="accommBtn_${ev.id}_${s.id}"><i class="ti ti-adjustments" style="font-size:11px"></i> ${usedCount}/${totalSlots}</button>
-                </div>`;
-              }).join('')}
-            </div>
-          </div>`).join('')}
-      </div>`;
-    };
+  const dayType = iso => {
+    const wd = new Date(iso+'T12:00:00').getDay(); // 0 Sun .. 6 Sat
+    if(wd===1||wd===3) return 'A';
+    if(wd===2||wd===4) return 'B';
+    if(wd===5) return FRIDAY_DAY_TYPES[iso] || null;
+    return null;
+  };
 
-    // Count accommodations
+  const renderStudentRow = (ev, s) => {
+    const att = (ev.attendance && ev.attendance[s.id]) || {attended:false, accommodationsUsed:[]};
+    const stuAccomm = (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a));
+    const usedCount = att.accommodationsUsed.length;
+    const totalSlots = stuAccomm.length + 1; // +1 for the always-available pilot checkbox
+    return `<div style="display:flex;align-items:center;gap:8px" id="stuRow_${ev.id}_${s.id}">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;flex:1">
+        <input type="checkbox" ${att.attended?'checked':''} onchange="toggleAttendance('${ev.id}','${s.id}',this.checked)" style="width:14px;height:14px">
+        <span style="${att.attended?'font-weight:700;color:var(--text)':''}">${s.name.split(' ')[0]} ${s.name.split(' ').slice(-1)[0]}</span>
+      </label>
+      ${deliveryBadge(s.testDelivery)}
+      <button ${!att.attended?'disabled':''} onclick="openAccommModal('${ev.id}','${s.id}','${s.name.replace(/'/g,"\\'")}')" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid ${att.attended?'var(--border2)':'var(--border)'};background:${att.attended?'var(--bg2)':'transparent'};color:${att.attended?'var(--text2)':'var(--text3)'};cursor:${att.attended?'pointer':'default'};opacity:${att.attended?'1':'.5'};flex-shrink:0" id="accommBtn_${ev.id}_${s.id}"><i class="ti ti-adjustments" style="font-size:11px"></i> ${usedCount}/${totalSlots}</button>
+    </div>`;
+  };
+
+  const TYPES={Test:'type-test',Quiz:'type-quiz',Assignment:'type-assign',Project:'type-project'};
+  const renderCard = ({ev, studs, others}) => {
     const accommCounts = {};
-    matchedStudents.forEach(s=>{
-      (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a)).forEach(a=>{
-        accommCounts[a]=(accommCounts[a]||0)+1;
-      });
-    });
+    studs.forEach(s=>(s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a)).forEach(a=>{ accommCounts[a]=(accommCounts[a]||0)+1; }));
     const topAccomm = Object.entries(accommCounts).sort((a,b)=>b[1]-a[1]);
-
-    // Delivery counts, for a quick "how many do I print" summary
-    const paperCount = matchedStudents.filter(s=>s.testDelivery==='paper').length;
-    const digitalCount = matchedStudents.filter(s=>s.testDelivery==='digital').length;
-    const reviewCount = matchedStudents.length - paperCount - digitalCount;
-
-    const TYPES={Test:'type-test',Quiz:'type-quiz',Assignment:'type-assign',Project:'type-project'};
-    const typeClass=TYPES[ev.type]||'type-other';
+    const paperCount = studs.filter(s=>s.testDelivery==='paper').length;
+    const digitalCount = studs.filter(s=>s.testDelivery==='digital').length;
+    const reviewCount = studs.length - paperCount - digitalCount;
+    const typeClass = TYPES[ev.type]||'type-other';
     const isComplete = !!ev.completed;
     const isPaperOnly = !!ev.paperOnly;
-
-    return sectionHeader + `<div id="prepCard_${ev.id}" style="border:1px solid ${isComplete?'#97C459':'var(--border)'};border-radius:10px;padding:14px;margin-bottom:12px;background:${isComplete?'#F5FAF0':'var(--bg)'};opacity:${isComplete?'0.7':'1'}">
+    const also = others.filter(x=>x!=='?').map(x=>'P'+x).join(', ');
+    return `<div class="prepCard" data-ev="${ev.id}" style="border:1px solid ${isComplete?'#97C459':'var(--border)'};border-radius:10px;padding:14px;margin-bottom:10px;background:${isComplete?'#F5FAF0':'var(--bg)'};opacity:${isComplete?'0.7':'1'}">
       <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;margin-top:2px" title="Mark as completed">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;margin-top:2px" title="Mark this test completed (all periods)">
           <input type="checkbox" ${isComplete?'checked':''} onchange="toggleTestComplete('${ev.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">
         </label>
-        <div style="flex:1">
-          <div style="font-size:14px;font-weight:700;${isComplete?'text-decoration:line-through;color:var(--text3)':''}">${ev.class}${ev.teacher?' — '+ev.teacher:''}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">
-            <span style="color:${urgency};font-weight:700">${dateStr}</span>
-            <span style="color:var(--text3)">${daysUntil===0?'Today':daysUntil===1?'Tomorrow':'In '+daysUntil+' days'}</span>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:14px;font-weight:700;${isComplete?'text-decoration:line-through;color:var(--text3)':''}">${ev.class}${ev.teacher?' <span style="font-weight:400;color:var(--text2)">— '+ev.teacher+'</span>':''}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            ${!isPaperOnly ? `<span>📄 Printing: <b>${paperCount}</b> &nbsp;·&nbsp; 💻 Digital: <b>${digitalCount}</b>${reviewCount?` &nbsp;·&nbsp; <span style="color:#A32D2D">⚠ Needs review: <b>${reviewCount}</b></span>`:''}</span>` : ''}
+            ${also?`<span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:var(--bg2);color:var(--text2)">Also ${also}</span>`:''}
             ${isComplete?'<span style="color:#3B6D11;font-weight:700">✓ Completed</span>':''}
-            ${isPaperOnly?`<span style="color:#854F0B;font-weight:700" title="${(ev.paperOnlyReason||'').replace(/"/g,'&quot;')}">📄 Paper only${ev.paperOnlyReason?' — '+ev.paperOnlyReason:''}</span>`:''}
+            ${isPaperOnly?`<span style="color:#854F0B;font-weight:700">📄 Paper only${ev.paperOnlyReason?' — '+ev.paperOnlyReason:''}</span>`:''}
             ${ev.notes?`<span>${ev.notes}</span>`:''}
           </div>
-          ${!isPaperOnly && matchedStudents.length ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">📄 Printing: <b>${paperCount}</b> &nbsp;·&nbsp; 💻 Digital: <b>${digitalCount}</b>${reviewCount?` &nbsp;·&nbsp; <span style="color:#A32D2D">⚠ Needs review: <b>${reviewCount}</b></span>`:''}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="event-badge ${typeClass}" style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700">${ev.type||'Other'}</span>
-          <span style="font-size:24px;font-weight:700;color:var(--navy)">${matchedStudents.length}</span>
-          <span style="font-size:11px;color:var(--text2)">student${matchedStudents.length!==1?'s':''}</span>
+          <span style="font-size:22px;font-weight:700;color:var(--navy)">${studs.length}</span>
+          <span style="font-size:11px;color:var(--text2)">student${studs.length!==1?'s':''}</span>
           <button class="btn btn-sm" style="color:#854F0B;border-color:#EF9F2780;font-size:11px" onclick="markPaperOnly('${ev.id}')">Paper only</button>
           <button class="btn btn-sm" style="color:#854F0B;border-color:#EF9F2780;font-size:11px" onclick="markNotInLC('${ev.id}')">Not in LC</button>
         </div>
       </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+        <div style="display:flex;flex-direction:column;gap:4px">${studs.map(s=>renderStudentRow(ev,s)).join('')}</div>
         <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">By period</div>
-          ${renderPeriodGroup(aDayPeriods,'A Day (Periods 1–4)','#185FA5')}
-          ${renderPeriodGroup(bDayPeriods,'B Day (Periods 5–8)','#0F6E56')}
-          ${renderPeriodGroup(unknownPeriods,'Period unknown','#888')}
-        </div>
-        <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Accommodations needed</div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Accommodations this period</div>
           ${topAccomm.length ? topAccomm.map(([a,count])=>`
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
-              <span style="font-size:13px;font-weight:700;color:var(--navy);min-width:24px">${count}</span>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:700;color:var(--navy);min-width:20px">${count}</span>
               <span style="font-size:12px">${a}</span>
             </div>`).join('') : '<div style="font-size:12px;color:var(--text3)">No testing accommodations on file</div>'}
         </div>
       </div>
     </div>`;
-  }).filter(Boolean).join('') || '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px">No upcoming events match students in your caseload.</div>';
+  };
+
+  let laterShown = false;
+  const html = Object.keys(days).sort().map(date=>{
+    const isToday = date === todayStr;
+    const dateLabel = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+    const dt = dayType(date);
+    const block = dt==='A' ? ['1','2','3','4'] : dt==='B' ? ['5','6','7','8'] : null;
+    const day = days[date];
+    const allP = Object.keys(day).sort((a,b)=>(parseInt(a)||99)-(parseInt(b)||99));
+    const meeting = block ? block : allP.filter(p=>p!=='?');
+    const notMeeting = allP.filter(p=>p!=='?' && meeting.indexOf(p)===-1);
+    let total = 0; allP.forEach(p=>day[p].forEach(g=>{ total += g.studs.length; }));
+    const groups = allP.reduce((n,p)=>n+day[p].length,0);
+
+    let out = '';
+    if(!isToday && !laterShown){
+      laterShown = true;
+      out += `<div style="font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 4px">Upcoming</div>`;
+    }
+    out += `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:${isToday?'4px':'14px'} 0 12px;padding-bottom:6px;border-bottom:2px solid ${isToday?'#A32D2D':'var(--navy)'}">
+      <span style="font-size:14px;font-weight:700;color:${isToday?'#A32D2D':'var(--navy)'};text-transform:uppercase;letter-spacing:.5px">${isToday?'📍 Today · ':''}${dateLabel}</span>
+      ${dt?`<span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;background:${dt==='A'?'#E8F0F8':'#E1F5EE'};color:${dt==='A'?'#185FA5':'#0F6E56'}">${dt} day · Periods ${dt==='A'?'1–4':'5–8'}</span>`:''}
+      <span style="font-size:12px;color:var(--text2)">${groups} test group${groups!==1?'s':''} · ${total} student${total!==1?'s':''}</span>
+    </div>`;
+
+    const section = (p, muted) => {
+      const list = day[p] || [];
+      const n = list.reduce((a,g)=>a+g.studs.length,0);
+      const dig = list.reduce((a,g)=>a+g.studs.filter(s=>s.testDelivery==='digital').length,0);
+      const pap = list.reduce((a,g)=>a+g.studs.filter(s=>s.testDelivery==='paper').length,0);
+      const r = PERIOD_RANGES[p];
+      const isNow = isToday && r && nowHM >= r[0] && nowHM <= r[1];
+      const title = p==='?' ? 'Period not found' : 'Period '+p;
+      return `<div style="margin-bottom:14px;${muted?'opacity:.6':''}">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-size:17px;font-weight:700;color:var(--navy)">${title}</span>
+          ${PERIOD_TIMES[p]&&!muted?`<span style="font-size:12px;color:var(--text3)">${PERIOD_TIMES[p]}</span>`:''}
+          ${isNow?'<span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;background:var(--navy);color:#fff">Happening now</span>':''}
+          ${muted?`<span style="font-size:11px;color:var(--text3)">doesn’t meet on ${dt==='A'?'an A':dt==='B'?'a B':'this'} day</span>`:''}
+          ${n?`<span style="margin-left:auto;font-size:12px;color:var(--text2)"><b>${n}</b> student${n!==1?'s':''} · 📄 Print <b>${pap}</b> · 💻 Digital <b>${dig}</b></span>`:''}
+        </div>
+        ${list.length ? list.sort((a,b)=>String(a.ev.teacher||'').localeCompare(String(b.ev.teacher||''))).map(renderCard).join('')
+          : '<div style="border:1px dashed var(--border2);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--text3)">No DCLC students testing this period.</div>'}
+      </div>`;
+    };
+
+    out += meeting.map(p=>section(p,false)).join('');
+    out += notMeeting.map(p=>section(p,true)).join('');
+    if(day['?']) out += section('?', false);
+    return out;
+  }).join('');
+
+  el.innerHTML = html || '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px">No upcoming events match students in your caseload.</div>';
 }
 
 async function markPaperOnly(id){
@@ -2916,8 +2950,7 @@ async function markNotInLC(id){
   const ev = calendarEvents.find(e=>e.id===id);
   if(ev){
     ev.notInLC = true;
-    const card = document.getElementById('prepCard_'+id);
-    if(card) card.remove();
+    document.querySelectorAll('.prepCard[data-ev="'+id+'"]').forEach(c=>c.remove());
     await saveCalendarEvents();
   }
 }
@@ -2943,12 +2976,14 @@ async function toggleTestComplete(id, isChecked){
   if(!ev) return;
   ev.completed = isChecked;
   // Update card styling in place without full rebuild
-  const card = document.getElementById('prepCard_'+id);
-  if(card){
+  // A test can appear under several periods — update every one of its cards.
+  document.querySelectorAll('.prepCard[data-ev="'+id+'"]').forEach(card=>{
     card.style.border = isChecked ? '1px solid #97C459' : '1px solid var(--border)';
     card.style.background = isChecked ? '#F5FAF0' : 'var(--bg)';
     card.style.opacity = isChecked ? '0.7' : '1';
-  }
+    const cb = card.querySelector('input[onchange^="toggleTestComplete"]');
+    if(cb) cb.checked = isChecked;
+  });
   await saveCalendarEvents();
 }
 
