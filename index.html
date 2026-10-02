@@ -3559,6 +3559,7 @@ function openCalendar(){
         <span><i class="ti ti-clock"></i> Pending review</span>
         <span id="pendingBadge" class="badge" style="background:#FAEEDA;color:#854F0B;font-size:12px;padding:2px 8px;border-radius:20px">0</span>
       </div>
+      <div id="calChanges"></div>
       <div id="pendingList"><div style="color:var(--text3);font-size:13px;padding:8px 0">Click "Sync from Google Calendar" to load pending events.</div></div>
     </div>
 
@@ -3668,6 +3669,12 @@ async function loadCalendarEvents(){
     await loadDiscardedIds();
     const r = await driveFetch('getCalendarEvents');
     if(r.ok && r.events){
+      // Fresh copy of approved events first, so nothing saved below
+      // overwrites changes made since this page loaded.
+      await loadApprovedEvents();
+      await applyCalendarBackfill(r.backfill || []);
+      calendarChanges = r.changes || [];
+      renderCalendarChanges();
       // Filter to only events relevant to our students
       pendingEvents = r.events.filter(e => !discardedEventIds.includes(e.id) && isRelevantToStudents(e));
       renderPendingEvents();
@@ -3677,6 +3684,82 @@ async function loadCalendarEvents(){
   }
 
   if(btn){ btn.innerHTML='<i class="ti ti-refresh"></i> Sync from Google Calendar'; btn.disabled=false; }
+}
+
+// ── Changes teachers made in Google Calendar after you approved ──
+let calendarChanges = [];
+
+// The sync links each approved event to its Google Calendar event the
+// first time it sees it, so later moves/deletes can be recognized.
+async function applyCalendarBackfill(list){
+  let changed = false;
+  list.forEach(b=>{
+    const ev = calendarEvents.find(e=>e.id===b.id);
+    if(!ev) return;
+    if(b.gcId && ev.gcId !== b.gcId){ ev.gcId = b.gcId; changed = true; }
+    if(b.gcDate && ev.gcDate !== b.gcDate){ ev.gcDate = b.gcDate; changed = true; }
+  });
+  if(changed){
+    try{ await drivePost({ action:'saveCalendarEvents', events:calendarEvents }); } catch(e){ console.warn('Backfill save failed', e); }
+  }
+}
+
+function fmtShortDate(d){
+  return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '—';
+}
+
+function renderCalendarChanges(){
+  const box = document.getElementById('calChanges');
+  if(!box) return;
+  if(!calendarChanges.length){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div style="border:1px solid #9FC2E7;background:#F1F6FC;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+    <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px"><i class="ti ti-calendar-event"></i> Changed in Google Calendar since you approved (${calendarChanges.length})</div>
+    ${calendarChanges.map((c,i)=>{
+      const who = `<b>${c.cls||'Test'}</b>${c.teacher?' — '+c.teacher:''}`;
+      if(c.kind==='moved'){
+        return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:${i?'1px solid #D6E4F3':'none'}">
+          <div style="flex:1;min-width:240px;font-size:13px">${who}<br><span style="color:var(--text2);font-size:12px">Google Calendar now says <b>${fmtShortDate(c.toDate)}</b> · portal has ${fmtShortDate(c.fromDate)}</span></div>
+          <button class="btn btn-sm btn-primary" onclick="resolveCalChange(${i},'useGoogle')">Move to ${fmtShortDate(c.toDate)}</button>
+          <button class="btn btn-sm" onclick="resolveCalChange(${i},'keep')">Keep ${fmtShortDate(c.fromDate)}</button>
+        </div>`;
+      }
+      return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:${i?'1px solid #D6E4F3':'none'}">
+        <div style="flex:1;min-width:240px;font-size:13px">${who}<br><span style="color:var(--text2);font-size:12px">${fmtShortDate(c.fromDate)} is no longer on the Google Calendar (deleted, or moved more than 3 weeks out)</span></div>
+        <button class="btn btn-sm" style="color:#A32D2D;border-color:#F0959580" onclick="resolveCalChange(${i},'remove')">Remove it</button>
+        <button class="btn btn-sm" onclick="resolveCalChange(${i},'keep')">Keep it</button>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function resolveCalChange(i, action){
+  const c = calendarChanges[i];
+  if(!c) return;
+  const ev = calendarEvents.find(e=>e.id===c.id);
+  const before = JSON.stringify(calendarEvents);
+  if(ev){
+    if(c.kind==='moved' && action==='useGoogle'){
+      ev.date = c.toDate;
+      ev.gcDate = c.toDate;
+      const periods = ev.period ? String(ev.period).split(',').map(p=>p.trim()).filter(Boolean) : [];
+      ev.studentIds = getMatchingStudentIds(ev.teacher, ev.class, periods);
+    } else if(c.kind==='moved' && action==='keep'){
+      ev.gcDate = c.toDate;           // stop asking until the teacher changes it again
+    } else if(c.kind==='missing' && action==='remove'){
+      calendarEvents = calendarEvents.filter(e=>e.id!==c.id);
+    } else if(c.kind==='missing' && action==='keep'){
+      ev.gcMissingOk = true;
+    }
+  }
+  const result = await drivePost({ action:'saveCalendarEvents', events:calendarEvents });
+  if(!result || result.ok===false){
+    calendarEvents = JSON.parse(before);
+    alert('Could not save — nothing was changed. Check your connection and try again.');
+    return;
+  }
+  calendarChanges.splice(i,1);
+  renderCalendarChanges();
+  renderApprovedEvents();
 }
 
 function peDateChipsHtml(dates, idx){
@@ -3876,6 +3959,8 @@ async function approveEvent(idx){
       studentIds: matchingStudentIds,
       level: e.source||'',
       notes: notes,
+      gcId: e.gcId||'',
+      gcDate: e.date,
       source: 'calendar',
       approved: true,
       approvedAt: new Date().toISOString()
@@ -4088,6 +4173,8 @@ async function approveAll(){
         studentIds: matchingStudentIds,
         level: e.source || '',
         notes: notes,
+        gcId: e.gcId || '',
+        gcDate: e.date,
         source: 'calendar',
         approved: true,
         approvedAt: new Date().toISOString()
