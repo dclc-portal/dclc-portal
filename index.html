@@ -199,6 +199,7 @@ body.principal-mode [onclick^="logEmailAsEntry"]
 body.principal-mode [onchange*="toggleTestComplete"]{ pointer-events:none !important; opacity:.5 }
 body.principal-mode [onchange*="toggleAttendance"],
 body.principal-mode [onchange*="toggleAccommUsed"]{ pointer-events:none !important; opacity:.5 }
+body.principal-mode #elemPortalBtn{ display:none !important }
 body.principal-mode textarea[onblur*="saveStudentNotes"]{ pointer-events:none !important; background:var(--bg2) !important; cursor:default }
 body.principal-mode input#docKeyword_field,
 body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity:.5 }
@@ -226,6 +227,7 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
       <span id="syncPill" class="sync-pill sync-ok" onclick="syncAll()" title="Click to sync with Google Drive"><i class="ti ti-refresh"></i> <span id="syncTxt">Sync Drive</span></span>
       <div id="principalBadge" style="display:none;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;background:#EEEDFE;color:#534AB7;border:1px solid #A89EF580"><i class="ti ti-shield"></i> Administrator view</div>
       <button class="btn" onclick="showPrincipalLogin()" id="principalLoginBtn" title="Administrator login"><i class="ti ti-shield"></i></button>
+      <a class="btn" id="elemPortalBtn" href="https://dclc-portal.github.io/dclc-elementary/" target="_blank" rel="noopener" style="text-decoration:none;background:#E1F5EE;color:#0F6E56;border-color:#0F6E5640" title="Open the Elementary Portal in a new tab"><i class="ti ti-school"></i> Elementary portal</a>
       <button class="btn" onclick="openStats()"><i class="ti ti-chart-bar"></i> Overview</button>
       <button class="btn" onclick="openCalendar()"><i class="ti ti-calendar"></i> Testing calendar</button>
       <button class="btn" onclick="openTestingSummary()"><i class="ti ti-clipboard-list"></i> Testing summary</button>
