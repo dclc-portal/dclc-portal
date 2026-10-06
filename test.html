@@ -38,7 +38,9 @@
     border-radius: 8px; cursor: pointer; width: 100%;
   }
   button.secondary:disabled { opacity: 0.4; cursor: default; }
-  #submitBar, #paceNav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 1px solid var(--border); padding: 12px 16px; }
+  #paceNav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 1px solid var(--border); padding: 12px 16px; }
+  /* Submit sits after the last question (not pinned to the screen), so it only appears once a student reaches the end. */
+  #submitBar { margin-top: 24px; padding: 16px 0 40px; border-top: 1px solid var(--border); }
   #submitBar .inner { max-width: 640px; margin: 0 auto; }
   #paceNav .inner { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; }
   #paceNav .inner button { flex: 1; margin: 0; }
@@ -91,6 +93,7 @@
 
   <div id="submitBar">
     <div class="inner">
+      <button class="secondary" id="lastBackBtn" onclick="paceBack()" style="display:none;margin-bottom:8px">&larr; Back</button>
       <button class="secondary" id="reviewBtn" onclick="openReviewScreen()" style="display:none;margin-bottom:8px">Review your answers</button>
       <button class="primary" id="submitBtn" onclick="submitTest()">Submit test</button>
       <div id="error"></div>
@@ -314,6 +317,7 @@
     document.getElementById('paceNav').style.display = isLast ? 'none' : 'block';
     document.getElementById('submitBar').style.display = isLast ? 'block' : 'none';
     document.getElementById('reviewBtn').style.display = isLast ? 'block' : 'none';
+    document.getElementById('lastBackBtn').style.display = isLast ? 'block' : 'none';
 
     refreshWordBankStrip();
   }
