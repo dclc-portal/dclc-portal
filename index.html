@@ -2778,7 +2778,7 @@ async function buildPrepView(){
       if(!ev.period) return true;
       const evPeriods = String(ev.period).split(',').map(x=>x.trim()).filter(Boolean);
       if(!evPeriods.length) return true;
-      const studentPeriod = getStudentPeriodForTeacher(s.name, ev.teacher);
+      const studentPeriod = getStudentPeriodForTeacher(s.name, ev.teacher, ev.class, evPeriods);
       return !studentPeriod || evPeriods.includes(String(studentPeriod));
     });
     matchedStudents = matchedStudentsResult;
@@ -2799,7 +2799,7 @@ async function buildPrepView(){
     const evPeriods = String(ev.period||'').split(',').map(x=>x.trim()).filter(Boolean);
     const byP = {};
     studs.forEach(s=>{
-      let p = getStudentPeriodForTeacher(s.name, ev.teacher);
+      let p = getStudentPeriodForTeacher(s.name, ev.teacher, ev.class, evPeriods);
       p = p ? String(p) : (evPeriods.length===1 ? evPeriods[0] : '?');
       (byP[p] = byP[p] || []).push(s);
     });
@@ -3873,19 +3873,33 @@ function renderPendingEvents(){
   }).join('');
 }
 
-function getStudentPeriodForTeacher(studentName, teacherName){
+// courseName / periods are optional. When a student has the same teacher
+// for two classes (e.g. Speech P1 and English 3 P8 with Mr. Kramer), they
+// pick the class this event is actually for instead of the first one listed.
+function getStudentPeriodForTeacher(studentName, teacherName, courseName, periods){
   if(!teacherName || typeof STUDENT_SCHEDULES === 'undefined') return null;
   const sch = STUDENT_SCHEDULES[studentName];
   if(!sch || !sch.courses) return null;
   const evT = teacherName.toLowerCase().trim();
-  // Try exact teacher match first
-  let match = sch.courses.find(c=>c.teacher.toLowerCase().trim() === evT);
-  // Fall back to last-name match
-  if(!match){
+  // Exact teacher match first, then last-name match
+  let mine = sch.courses.filter(c=>c.teacher.toLowerCase().trim() === evT);
+  if(!mine.length){
     const evLast = evT.split(' ').pop();
-    match = sch.courses.find(c=>c.teacher.toLowerCase().includes(evLast));
+    mine = sch.courses.filter(c=>c.teacher.toLowerCase().includes(evLast));
   }
-  return match ? match.period : null;
+  if(!mine.length) return null;
+  const pList = (Array.isArray(periods) ? periods : String(periods||'').split(',')).map(x=>String(x).trim()).filter(Boolean);
+  const cn = String(courseName||'').toLowerCase().trim();
+  const sameCourse = c => {
+    const x = c.course.toLowerCase().trim();
+    return !!cn && (x === cn || x.includes(cn) || cn.includes(x));
+  };
+  const inPeriods = c => pList.includes(String(c.period));
+  const match = mine.find(c=>sameCourse(c) && inPeriods(c))
+             || mine.find(c=>sameCourse(c))
+             || mine.find(c=>inPeriods(c))
+             || mine[0];
+  return match.period;
 }
 
 function getMatchingStudentIds(teacher, course, periods){
