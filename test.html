@@ -69,6 +69,11 @@
   .welcomeBack { background: #E1F5EE; color: #0F6E56; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; display: none; }
   #pausedScreen { max-width: 440px; margin: 100px auto; text-align: center; display: none; padding: 0 16px; }
   #pausedScreen h2 { color: var(--navy); }
+  .raBar { display: none; align-items: center; gap: 8px; flex-wrap: wrap; background: #EEF3FA; border: 1px solid #d7e6fb; border-radius: 8px; padding: 8px 10px; margin-bottom: 14px; font-size: 13px; color: var(--navy); }
+  .raBar .raLabel { font-weight: 700; margin-right: auto; }
+  .raBar button, .raBtn { background: #fff; border: 1px solid var(--navy); color: var(--navy); border-radius: 6px; font-size: 13px; padding: 7px 12px; cursor: pointer; width: auto; }
+  .raBtn { float: right; margin: -4px 0 6px 10px; font-size: 12px; padding: 5px 10px; }
+  .speaking { background: #FFF3BF !important; border-radius: 4px; box-shadow: 0 0 0 3px #FFF3BF; }
 </style>
 </head>
 <body>
@@ -92,6 +97,11 @@
     <button type="button" id="pauseBtn" onclick="saveAndFinishLater()">Save and finish later</button>
   </div>
   <div class="welcomeBack" id="welcomeBack"></div>
+  <div class="raBar" id="raBar">
+    <span class="raLabel">&#128266; Read aloud is on</span>
+    <button type="button" id="raAgainBtn" onclick="readCurrentAgain()">&#8635; Read again</button>
+    <button type="button" onclick="stopReading()">&#9632; Stop</button>
+  </div>
 
   <div id="paceBar">
     <div class="progressWrap"><div id="progressFill" class="progressFill"></div></div>
@@ -150,6 +160,16 @@
   var saveInFlight = false;
   var progressReady = false;  // don't save until any earlier progress has been restored
   var submitted = false;
+
+  // Built-in read aloud (turned on by the Testing Center with &ra=1 for
+  // students with Oral administration). One-question-at-a-time tests read
+  // each question automatically when it appears; regular tests get a
+  // Read button on every question.
+  var READ_ALOUD = params.get('ra') === '1' && ('speechSynthesis' in window);
+  var raVoice = null;
+  var RA_RATE = 0.8;           // speaking speed (1 = normal)
+  var RA_PREFERRED_VOICES = ['Chrome OS US English 4', 'Google US English', 'Samantha']; // checked in order: Chromebook, Chrome on Mac/Windows, Safari on Mac
+  var raToken = 0;
 
   // The Testing Center passes the student's name along; fill it in for them.
   (function(){
@@ -293,7 +313,125 @@
       // Normal mode: every step is simply shown at once.
       document.querySelectorAll('#questions .step').forEach(function(el){ el.classList.add('activeStep'); });
     }
+    setupReadAloud();
   }
+
+  // ── READ ALOUD ────────────────────────────────────────────────
+  function pickVoice(){
+    var vs = window.speechSynthesis.getVoices() || [];
+    var en = vs.filter(function(v){ return /^en(-|_)US/i.test(v.lang); });
+    if(!en.length) en = vs.filter(function(v){ return /^en/i.test(v.lang); });
+    // Preferred voice names, checked in order (whatever this computer has).
+    var norm = function(x){ return String(x || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+    var preferred = RA_PREFERRED_VOICES.map(function(n){ return en.filter(function(v){ return norm(v.name).indexOf(norm(n)) === 0; })[0]; }).filter(Boolean)[0];
+    // Fallback: another Chrome OS voice (same on every school Chromebook), then Google, then any local voice.
+    raVoice = preferred || en.filter(function(v){ return /chrome ?os/i.test(v.name); })[0] || en.filter(function(v){ return /google/i.test(v.name); })[0] || en.filter(function(v){ return v.localService; })[0] || en[0] || null;
+  }
+
+  function setupReadAloud(){
+    if(!READ_ALOUD) return;
+    pickVoice();
+    window.speechSynthesis.onvoiceschanged = pickVoice;
+    var bar = document.getElementById('raBar');
+    bar.style.display = 'flex';
+    if(testData.pacing !== 'one-at-a-time'){
+      // Regular test: no auto-play; a Read button on each question instead.
+      document.getElementById('raAgainBtn').style.display = 'none';
+      document.querySelectorAll('#questions .step').forEach(function(stepEl, idx){
+        var card = stepEl.querySelector('.card');
+        if(!card) return;
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'raBtn';
+        b.innerHTML = '&#128266; Read';
+        b.onclick = function(){ readStep(idx); };
+        card.insertBefore(b, card.firstChild);
+      });
+    }
+  }
+
+  /** Splits text into sentence-sized pieces (Chrome cuts off very long utterances). */
+  function sentences(text){
+    // Blanks like "_____" are read as the word "blank".
+    var t = String(text || '').replace(/_{2,}/g, ' blank ').replace(/\s+/g, ' ').trim();
+    if(!t) return [];
+    var parts = t.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [t];
+    return parts.map(function(x){ return x.trim(); }).filter(Boolean);
+  }
+
+  /** The pieces to read for one question, each tied to the element to highlight. */
+  function readingChunks(stepEl, idx){
+    var chunks = [];
+    var add = function(text, el){ sentences(text).forEach(function(t){ chunks.push({ text: t, el: el }); }); };
+    stepEl.querySelectorAll('.sectionheader').forEach(function(h){ add(h.textContent, h); });
+    var card = stepEl.querySelector('.card');
+    if(!card) return chunks;
+    var qtextEl = card.querySelector('.qtext');
+    chunks.push({ text: 'Question ' + (idx + 1) + '.', el: qtextEl });
+    add(qtextEl ? qtextEl.textContent : '', qtextEl);
+    var qtype = card.getAttribute('data-qtype');
+    if(qtype === 'multiplechoice' || qtype === 'truefalse'){
+      var labels = card.querySelectorAll('label.mc-option');
+      labels.forEach(function(l, i){
+        var t = l.textContent.trim();
+        chunks.push({ text: (i === labels.length - 1 && labels.length > 1 ? 'or, ' : '') + t + (/[.!?]$/.test(t) ? '' : '.'), el: l });
+      });
+    } else if(qtype === 'matching'){
+      var intro = card.querySelector('.card > div[style*="font-size:13px"]');
+      if(intro) add(intro.textContent, intro);
+      card.querySelectorAll('select').forEach(function(sel){
+        var row = sel.previousElementSibling;
+        if(row) add(row.textContent, row.parentNode);
+      });
+    } else {
+      var sel = card.querySelector('select[data-wbkey]');
+      if(sel){
+        var words = Array.prototype.slice.call(sel.options).map(function(o){ return o.value; }).filter(Boolean);
+        if(words.length) chunks.push({ text: 'Choose from the word bank: ' + words.join(', ') + '.', el: document.getElementById('wordBankStrip').style.display !== 'none' ? document.getElementById('wordBankStrip') : sel });
+      }
+    }
+    return chunks;
+  }
+
+  function clearSpeaking(){
+    document.querySelectorAll('.speaking').forEach(function(el){ el.classList.remove('speaking'); });
+  }
+
+  function stopReading(){
+    if(!READ_ALOUD) return;
+    raToken++;
+    window.speechSynthesis.cancel();
+    clearSpeaking();
+  }
+
+  /** Reads one question start to finish, then stops and waits. */
+  function readStep(idx){
+    if(!READ_ALOUD) return;
+    var stepEl = document.querySelectorAll('#questions .step')[idx];
+    if(!stepEl) return;
+    stopReading();
+    var token = raToken;
+    var chunks = readingChunks(stepEl, idx);
+    var i = 0;
+    var next = function(){
+      if(token !== raToken) return;
+      clearSpeaking();
+      if(i >= chunks.length) return; // done — wait for the student
+      var c = chunks[i++];
+      var u = new SpeechSynthesisUtterance(c.text);
+      if(raVoice) u.voice = raVoice;
+      u.lang = raVoice ? raVoice.lang : 'en-US';
+      u.rate = RA_RATE;
+      u.onstart = function(){ if(token === raToken && c.el) c.el.classList.add('speaking'); };
+      u.onend = function(){ setTimeout(next, 250); };
+      u.onerror = function(){ setTimeout(next, 50); };
+      window.speechSynthesis.speak(u);
+    };
+    // A short pause after cancel() keeps Chrome from dropping the first sentence.
+    setTimeout(next, 120);
+  }
+
+  function readCurrentAgain(){ readStep(currentStepIndex); }
 
   function looksLikeLongAnswer(text){
     var t = String(text || '').toLowerCase();
@@ -350,6 +488,8 @@
     document.getElementById('lastBackBtn').style.display = isLast ? 'block' : 'none';
 
     refreshWordBankStrip();
+    // Read the new question automatically (once any saved progress has been restored).
+    if(READ_ALOUD && progressReady) readStep(i);
   }
 
   function paceNext(){
@@ -413,6 +553,7 @@
         lastSavedJson = JSON.stringify({ f: saved.fields, s: Number(saved.step) || 0 });
       }
       progressReady = true;
+      if(READ_ALOUD && testData.pacing === 'one-at-a-time') readStep(currentStepIndex);
       var q = document.getElementById('questions');
       q.addEventListener('change', function(){ scheduleSave(800); });
       q.addEventListener('input', function(){ scheduleSave(2500); });
@@ -477,6 +618,7 @@
   }
 
   function saveAndFinishLater(){
+    stopReading();
     var btn = document.getElementById('pauseBtn');
     btn.disabled = true; btn.textContent = 'Saving…';
     clearTimeout(saveTimer);
@@ -501,6 +643,7 @@
   /** Builds the "Review your answers" overview: every question with its current
       answer status, tap any row to jump straight back to that question. */
   function openReviewScreen(){
+    stopReading();
     var listEl = document.getElementById('reviewList');
     var html = '';
     var qNum = 0;
@@ -610,6 +753,7 @@
   }
 
   function submitTest(){
+    stopReading();
     document.getElementById('submitBtn').disabled = true;
     document.getElementById('error').style.display = 'none';
     var answers = collectAnswers();
