@@ -64,6 +64,11 @@
   .reviewRowText { font-size: 14px; margin-bottom: 6px; }
   .reviewRowAns { font-size: 13px; font-weight: 700; color: var(--navy); }
   .reviewRowAns.unanswered { color: var(--danger); font-weight: 400; font-style: italic; }
+  .saveRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: -4px 0 16px; font-size: 12px; color: var(--text3); }
+  .saveRow button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--navy); font-size: 12px; padding: 6px 10px; cursor: pointer; width: auto; }
+  .welcomeBack { background: #E1F5EE; color: #0F6E56; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; display: none; }
+  #pausedScreen { max-width: 440px; margin: 100px auto; text-align: center; display: none; padding: 0 16px; }
+  #pausedScreen h2 { color: var(--navy); }
 </style>
 </head>
 <body>
@@ -82,6 +87,11 @@
 <div class="wrap" id="testWrap" style="display:none">
   <h1 id="testTitle"></h1>
   <div class="sub" id="testStudentLine"></div>
+  <div class="saveRow">
+    <span id="saveStatus">Your answers save automatically.</span>
+    <button type="button" id="pauseBtn" onclick="saveAndFinishLater()">Save and finish later</button>
+  </div>
+  <div class="welcomeBack" id="welcomeBack"></div>
 
   <div id="paceBar">
     <div class="progressWrap"><div id="progressFill" class="progressFill"></div></div>
@@ -116,6 +126,12 @@
   <button class="secondary" onclick="closeReviewScreen()" style="margin-top:10px">Back to the test</button>
 </div>
 
+<div id="pausedScreen">
+  <h2>Your answers are saved</h2>
+  <p class="sub" style="font-size:14px">When you come back, open the Testing Center and tap <b>Continue</b> to pick up right where you left off.</p>
+  <p id="pausedError" style="color:#A32D2D;font-size:13px;display:none"></p>
+</div>
+
 <div id="doneScreen">
   <h2>You're all done</h2>
   <p class="sub" style="font-size:14px">Your answers have been saved. You may close this page — nothing else to do.</p>
@@ -127,6 +143,19 @@
   var BACKEND_URL = 'https://script.google.com/a/macros/dallaschristian.com/s/AKfycbwKeI4Pycbcq0I1xAEBqniwl6MZv1Ep8kai4lZS2UGWUbSyDYXRl6AKgVgfz_82mLW6zg/exec';
   var studentName = '';
   var testData = null;
+
+  // Saved progress (so a student can leave and come back later)
+  var saveTimer = null;
+  var lastSavedJson = '';
+  var saveInFlight = false;
+  var progressReady = false;  // don't save until any earlier progress has been restored
+  var submitted = false;
+
+  // The Testing Center passes the student's name along; fill it in for them.
+  (function(){
+    var n = params.get('name');
+    if(n){ var el = document.getElementById('studentNameInput'); if(el) el.value = n; }
+  })();
 
   // Paced ("one question at a time") mode state
   var stepWordBanks = [];   // stepIndex -> { key, words } or null
@@ -160,6 +189,7 @@
         }
         testData = data;
         renderTest();
+        restoreProgress();
       })
       .catch(function(){
         document.getElementById('loading').style.display = 'none';
@@ -327,6 +357,7 @@
       currentStepIndex++;
       showStep(currentStepIndex);
       window.scrollTo(0, 0);
+      scheduleSave(300);
     }
   }
 
@@ -335,8 +366,137 @@
       currentStepIndex--;
       showStep(currentStepIndex);
       window.scrollTo(0, 0);
+      scheduleSave(300);
     }
   }
+
+  // ── SAVED PROGRESS ────────────────────────────────────────────
+  function progressKey(){
+    return 'dclc_progress_' + String(TEST_ID || '').replace(/~p[01]$/, '') + '_' + studentName.toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  /** Every answer field on the page as { fieldName: value }. */
+  function snapshotFields(){
+    var out = {};
+    document.querySelectorAll('#questions input, #questions select, #questions textarea').forEach(function(el){
+      if(!el.name) return;
+      if(el.type === 'radio'){ if(el.checked) out[el.name] = el.value; return; }
+      if(el.value) out[el.name] = el.value;
+    });
+    return out;
+  }
+
+  function applyFields(fields){
+    Object.keys(fields || {}).forEach(function(name){
+      var val = fields[name];
+      document.querySelectorAll('#questions [name="' + name.replace(/"/g, '') + '"]').forEach(function(el){
+        if(el.type === 'radio') el.checked = (el.value === val);
+        else el.value = val;
+      });
+    });
+  }
+
+  function restoreProgress(){
+    var done = function(saved, fromDevice){
+      if(saved && saved.fields && Object.keys(saved.fields).length){
+        applyFields(saved.fields);
+        var n = Object.keys(saved.fields).length;
+        if(testData.pacing === 'one-at-a-time' && totalSteps){
+          currentStepIndex = Math.max(0, Math.min(Number(saved.step) || 0, totalSteps - 1));
+          showStep(currentStepIndex);
+        }
+        refreshWordBankStrip();
+        var wb = document.getElementById('welcomeBack');
+        wb.textContent = 'Welcome back! Your saved answers are filled in' +
+          (testData.pacing === 'one-at-a-time' ? ' — you\'re on Question ' + (currentStepIndex + 1) + '.' : '.');
+        wb.style.display = 'block';
+        lastSavedJson = JSON.stringify({ f: saved.fields, s: Number(saved.step) || 0 });
+      }
+      progressReady = true;
+      var q = document.getElementById('questions');
+      q.addEventListener('change', function(){ scheduleSave(800); });
+      q.addEventListener('input', function(){ scheduleSave(2500); });
+    };
+    var local = null;
+    try { local = JSON.parse(localStorage.getItem(progressKey()) || 'null'); } catch(e) {}
+    fetch(BACKEND_URL + '?action=getProgress&testId=' + encodeURIComponent(TEST_ID) + '&name=' + encodeURIComponent(studentName))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var server = data && data.ok ? data.progress : null;
+        // Use whichever copy is newer (the device copy covers a dropped connection).
+        if(local && (!server || (local.updated || 0) > (server.updated || 0))) done(local, true);
+        else done(server, false);
+      })
+      .catch(function(){ done(local, true); });
+  }
+
+  function scheduleSave(delay){
+    if(!progressReady || submitted) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function(){ saveProgress(false); }, delay || 1000);
+  }
+
+  /** Saves answers + current question. Returns a promise that resolves true/false. */
+  function saveProgress(force){
+    if(!progressReady || submitted) return Promise.resolve(true);
+    var fields = snapshotFields();
+    var json = JSON.stringify({ f: fields, s: currentStepIndex });
+    if(!force && json === lastSavedJson) return Promise.resolve(true);
+    try { localStorage.setItem(progressKey(), JSON.stringify({ fields: fields, step: currentStepIndex, updated: Date.now() })); } catch(e) {}
+    if(saveInFlight && !force){ scheduleSave(1500); return Promise.resolve(true); }
+    saveInFlight = true;
+    var statusEl = document.getElementById('saveStatus');
+    statusEl.textContent = 'Saving…';
+    return fetch(BACKEND_URL, {
+      method: 'POST',
+      keepalive: true,
+      body: JSON.stringify({
+        action: 'saveProgress',
+        testId: TEST_ID,
+        testTitle: testData.title,
+        studentName: studentName,
+        fields: fields,
+        step: currentStepIndex,
+        link: window.location.href.split('#')[0]
+      })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        saveInFlight = false;
+        if(!data.ok) throw new Error(data.error || 'save failed');
+        lastSavedJson = json;
+        statusEl.textContent = 'All answers saved.';
+        return true;
+      })
+      .catch(function(){
+        saveInFlight = false;
+        statusEl.textContent = 'Saved on this computer — will keep trying to save online.';
+        scheduleSave(5000);
+        return false;
+      });
+  }
+
+  function saveAndFinishLater(){
+    var btn = document.getElementById('pauseBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    clearTimeout(saveTimer);
+    saveProgress(true).then(function(ok){
+      btn.disabled = false; btn.textContent = 'Save and finish later';
+      if(!ok){
+        document.getElementById('saveStatus').textContent = 'Could not save online yet — please stay on this page and try again, or tell Mrs. Seabourn.';
+        return;
+      }
+      document.getElementById('testWrap').style.display = 'none';
+      document.getElementById('reviewScreen').style.display = 'none';
+      document.getElementById('pausedScreen').style.display = 'block';
+      window.scrollTo(0, 0);
+    });
+  }
+
+  // Save right away if the student switches tabs or closes the page.
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'hidden') saveProgress(false);
+  });
 
   /** Builds the "Review your answers" overview: every question with its current
       answer status, tap any row to jump straight back to that question. */
@@ -390,6 +550,7 @@
     currentStepIndex = idx;
     showStep(idx);
     window.scrollTo(0, 0);
+    scheduleSave(300);
   }
 
   /** Returns to the test from the review screen without changing the current question. */
@@ -481,7 +642,11 @@
         if(!data.ok){
           throw new Error('Save failed');
         }
+        submitted = true;
+        clearTimeout(saveTimer);
+        try { localStorage.removeItem(progressKey()); } catch(e) {}
         document.getElementById('testWrap').style.display = 'none';
+        document.getElementById('reviewScreen').style.display = 'none';
         document.getElementById('doneScreen').style.display = 'block';
       })
       .catch(function(){
@@ -489,7 +654,7 @@
           setTimeout(function(){ attemptSubmit(answers, attemptsLeft - 1); }, 1500);
         } else {
           document.getElementById('submitBtn').disabled = false;
-          document.getElementById('error').textContent = 'Could not save your answers after several tries. Please stay on this page and try Submit again, or tell Mrs. Betsy right away.';
+          document.getElementById('error').textContent = 'Could not save your answers after several tries. Please stay on this page and try Submit again, or tell Mrs. Seabourn right away.';
           document.getElementById('error').style.display = 'block';
         }
       });
