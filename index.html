@@ -1081,8 +1081,61 @@ function renderSnapshot(s,c){
 }
 
 function renderTesting(s){
+  setTimeout(()=>loadTestingCenterVisits(s), 0);
+  const visitsCard = `<div class="card" id="tcVisits_${s.id}">
+      <div class="card-title"><i class="ti ti-building"></i> Testing Center visits</div>
+      <div style="color:var(--text3);font-size:13px"><i class="ti ti-refresh" style="animation:spin 1s linear infinite"></i> Loading...</div>
+    </div>`;
+  return visitsCard + renderDiagnosticTesting(s);
+}
+
+/** Every test this student was checked off for in Testing Center Prep, newest first. */
+async function loadTestingCenterVisits(s){
+  const el = document.getElementById('tcVisits_'+s.id);
+  if(!el) return;
+  const title = '<div class="card-title"><i class="ti ti-building"></i> Testing Center visits</div>';
+  try{
+    const r = await driveFetch('getApprovedEvents');
+    const events = (r.events||[]).filter(ev=>ev.attendance && ev.attendance[s.id] && ev.attendance[s.id].attended)
+      .sort((a,b)=>String(b.date).localeCompare(String(a.date)) || (parseInt(String(a.period))||99)-(parseInt(String(b.period))||99));
+    if(!el.isConnected) return;
+    if(!events.length){
+      el.innerHTML = title + '<div style="color:var(--text3);font-size:13px">No visits recorded yet. Students show up here once they\'re checked off in Testing Center Prep.</div>';
+      return;
+    }
+    const fmt = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+    const nTests = events.filter(e=>/test|exam/i.test(e.type||'')).length;
+    const nQuiz = events.filter(e=>/quiz/i.test(e.type||'')).length;
+    const subjects = {};
+    events.forEach(e=>{ const k=e.class||'Other'; subjects[k]=(subjects[k]||0)+1; });
+    const topSubj = Object.entries(subjects).filter(x=>x[1]>1).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([k,v])=>escapeHtmlLite(k)+' ('+v+')').join(', ');
+    const rows = events.map(ev=>{
+      const used = (ev.attendance[s.id].accommodationsUsed||[]);
+      const p = String(ev.period||'').split(',').map(x=>x.trim()).filter(Boolean);
+      return `<div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:start;padding:8px 0;border-top:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text2)">${fmt(ev.date)}</div>
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:700">${escapeHtmlLite(ev.class||'')} <span style="font-weight:400;color:var(--text2)">— ${escapeHtmlLite(ev.teacher||'')}${p.length?' · P'+p.join(', P'):''}</span></div>
+          ${used.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${used.map(a=>`<span style="font-size:11px;padding:1px 8px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);color:var(--text2)">${escapeHtmlLite(a)}</span>`).join('')}</div>`
+            : '<div style="font-size:11px;color:var(--text3);margin-top:3px">No accommodations marked</div>'}
+        </div>
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:#FCEBEB;color:#A32D2D;white-space:nowrap">${escapeHtmlLite(ev.type||'Test')}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML = title + `
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:8px">
+        <span><b style="font-size:20px;color:var(--navy)">${events.length}</b> visit${events.length!==1?'s':''}</span>
+        <span style="color:var(--text2)">${nTests} test${nTests!==1?'s':''} · ${nQuiz} quiz${nQuiz!==1?'zes':''}</span>
+        ${topSubj ? `<span style="color:var(--text2)">Most often: ${topSubj}</span>` : ''}
+      </div>${rows}`;
+  } catch(err){
+    if(el.isConnected) el.innerHTML = title + '<div style="color:#A32D2D;font-size:13px">Could not load Testing Center visits.</div>';
+  }
+}
+
+function renderDiagnosticTesting(s){
   const hist=s.testingHistory||[];
-  if(!hist.length) return`<div class="card"><div class="card-title"><i class="ti ti-test-pipe"></i> No testing records yet</div>
+  if(!hist.length) return`<div class="card"><div class="card-title"><i class="ti ti-test-pipe"></i> No diagnostic testing records yet</div>
     <div style="color:var(--text3);font-size:13px;padding:4px 0">Add KBIT-2 and KTEA-3 Brief results to track scores across the student's DCLC career.</div></div>
     <button class="btn btn-primary" onclick="showTestForm('${s.id}')"><i class="ti ti-plus"></i> Add test result</button>`;
   const kbit=hist.filter(h=>h.type==='KBIT-2');
