@@ -1595,10 +1595,10 @@ function showMeetingLogForm(sid, prefill){
       <div class="ff full"><label>Who was involved</label><input id="ml_attendees" value="${pf.attendees||''}" placeholder="e.g. Mom, homeroom teacher, Mrs. Barker"></div>
     </div>
     <div class="ff full" style="margin-top:10px"><label>Notes</label>
-      <textarea id="ml_notes" style="min-height:80px" placeholder="What was discussed or observed...">${pf.notes||''}</textarea>
+      <textarea id="ml_notes" style="min-height:${(pf.notes||'').length>400?'260px':'80px'}" placeholder="What was discussed or observed...">${escapeHtmlLite(pf.notes||'')}</textarea>
     </div>
     <div class="ff full" style="margin-top:8px"><label>Follow up</label>
-      <textarea id="ml_followup" style="min-height:56px" placeholder="Any next steps or follow-up needed...">${pf.followUp||''}</textarea>
+      <textarea id="ml_followup" style="min-height:56px" placeholder="Any next steps or follow-up needed...">${escapeHtmlLite(pf.followUp||'')}</textarea>
     </div>`;
   document.getElementById('formActions').innerHTML='<button class="btn" onclick="closeForm()">Cancel</button><button class="btn btn-primary" onclick="saveMeetingLog(\''+sid+'\')">Save entry</button>';
   document.getElementById('formOv').style.display='flex';
@@ -1639,17 +1639,27 @@ async function searchParentEmails(sid, sname){
     const r = await fetch(targetUrl+'?action=getParentEmailThreads&studentName='+encodeURIComponent(sname)).then(r=>r.json());
     if(el){
       if(r.threads && r.threads.length){
-        el.innerHTML = r.threads.map(t=>{
-          const d = new Date(t.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-          const safeSubj = t.subject.replace(/'/g,"\\'").replace(/"/g,'&quot;');
-          const safeSnip = t.snippet.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+        emailThreadCache[sid] = r.threads;
+        el.innerHTML = r.threads.map((t,i)=>{
+          const fmt = x => new Date(x).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+          const msgs = t.messages || [];
+          const range = (t.firstDate && fmt(t.firstDate)!==fmt(t.date)) ? fmt(t.firstDate)+' – '+fmt(t.date) : fmt(t.date);
+          const count = msgs.length || t.messageCount || 1;
+          const full = msgs.map(m=>`<div style="padding:8px 0;border-top:1px dashed var(--border)">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:3px"><b style="color:var(--text2)">${escapeHtmlLite(m.from)}</b> · ${new Date(m.date).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>
+              <div style="font-size:12px;color:var(--text);white-space:pre-wrap">${escapeHtmlLite(m.body)||'<i style="color:var(--text3)">(no text)</i>'}</div>
+            </div>`).join('');
           return `<div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px">
-              <div style="font-size:13px;font-weight:700;flex:1">${t.subject}${t.isCheckinThread?' <span style="font-size:10px;background:#e8f0f8;color:#185FA5;padding:1px 6px;border-radius:20px;font-weight:400">Parent replied to check-in</span>':''}</div>
-              <span style="font-size:11px;color:var(--text3);flex-shrink:0">${d}</span>
+              <div style="font-size:13px;font-weight:700;flex:1">${escapeHtmlLite(t.subject)}${t.isCheckinThread?' <span style="font-size:10px;background:#e8f0f8;color:#185FA5;padding:1px 6px;border-radius:20px;font-weight:400">Parent replied to check-in</span>':''}</div>
+              <span style="font-size:11px;color:var(--text3);flex-shrink:0">${range}</span>
             </div>
-            <div style="font-size:12px;color:var(--text2);margin-bottom:6px">${t.snippet}${t.snippet.length>=220?'…':''}</div>
-            <button class="btn btn-sm" onclick="logEmailAsEntry('${sid}','${d}','${safeSubj}','${safeSnip}')"><i class="ti ti-clipboard-plus"></i> Log this</button>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:6px">${escapeHtmlLite(t.snippet)}${t.snippet.length>=220?'…':''}</div>
+            ${msgs.length ? `<div id="emailFull_${sid}_${i}" style="display:none;margin-bottom:6px">${full}</div>` : ''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-sm" onclick="logEmailThread('${sid}',${i})"><i class="ti ti-clipboard-plus"></i> Log ${count>1?'whole thread ('+count+' messages)':'this'}</button>
+              ${msgs.length>0 ? `<button class="btn btn-sm" onclick="toggleEmailFull('${sid}',${i},this)"><i class="ti ti-mail-opened"></i> Show full ${count>1?'thread':'email'}</button>` : ''}
+            </div>
           </div>`;
         }).join('');
       } else if(r.error){
@@ -1663,6 +1673,36 @@ async function searchParentEmails(sid, sname){
   } catch(err){
     if(el) el.innerHTML = '<div style="color:#A32D2D;font-size:13px">Search failed. Make sure Gmail access has been authorized for this Apps Script.</div>';
   }
+}
+
+const emailThreadCache = {};
+function escapeHtmlLite(x){
+  return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function toggleEmailFull(sid, i, btn){
+  const box = document.getElementById('emailFull_'+sid+'_'+i);
+  if(!box) return;
+  const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  btn.innerHTML = open ? '<i class="ti ti-mail"></i> Hide' : '<i class="ti ti-mail-opened"></i> Show full thread';
+}
+/** Logs every message in the thread (oldest first) as one Email entry. */
+function logEmailThread(sid, i){
+  const t = (emailThreadCache[sid]||[])[i];
+  if(!t) return;
+  const msgs = t.messages || [];
+  if(!msgs.length){
+    const d = new Date(t.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    return logEmailAsEntry(sid, d, t.subject, t.snippet);
+  }
+  const fmtDay = x => new Date(x).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const fmtWhen = x => new Date(x).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  const head = t.subject + (msgs.length>1 ? '\n(' + msgs.length + ' messages, ' + fmtDay(msgs[0].date) + ' – ' + fmtDay(msgs[msgs.length-1].date) + ')' : '');
+  const body = msgs.map(m => fmtWhen(m.date) + ' — ' + m.from + ':\n' + (m.body||'(no text)')).join('\n\n');
+  const last = new Date(t.date);
+  const iso = isNaN(last) ? new Date().toISOString().slice(0,10)
+    : last.getFullYear()+'-'+String(last.getMonth()+1).padStart(2,'0')+'-'+String(last.getDate()).padStart(2,'0');
+  showMeetingLogForm(sid, { type: 'Email', date: iso, notes: head + '\n\n' + body });
 }
 
 function logEmailAsEntry(sid, dateStr, subject, snippet){
