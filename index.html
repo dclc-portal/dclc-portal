@@ -188,6 +188,7 @@ body.principal-mode [onclick^="markNotInLC"],
 body.principal-mode [onclick^="findFIEDocs"],
 body.principal-mode [onclick^="findOtherDocs"],
 body.principal-mode [onclick^="removeOtherDoc"],
+body.principal-mode [onclick^="removeDoc"],
 body.principal-mode [onclick^="importRoster"],
 body.principal-mode [onclick^="parseRoster"],
 body.principal-mode [onclick^="applySchedule"],
@@ -884,12 +885,7 @@ function renderOverview(s,dueAlert){
       <button class="btn btn-sm" onclick="findFIEDocs('${s.id}','${s.name.replace(/'/g,"\\'")}')"><i class="ti ti-search"></i> Find in Drive</button>
     </div>
     <div id="fieDocsList_${s.id}">
-      ${(s.fieDocs&&s.fieDocs.length) ? s.fieDocs.map(f=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg2);margin-bottom:4px">
-          <i class="ti ti-file-type-pdf" style="color:#A32D2D;font-size:16px"></i>
-          <a href="${f.url}" target="_blank" style="flex:1;font-size:13px;color:var(--navy);text-decoration:none;font-weight:700">${f.name}</a>
-          ${f.isSummary?'<span style="font-size:10px;background:#e8f0f8;color:#185FA5;padding:1px 6px;border-radius:20px">Summary</span>':'<span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:1px 6px;border-radius:20px">Full FIE</span>'}
-        </div>`).join('') : '<div style="color:var(--text3);font-size:13px">No FIE documents linked yet. Click "Find in Drive" to search.</div>'}
+      ${docListHtml(s,'fie')}
     </div>
   </div>
   <div class="card">
@@ -900,11 +896,7 @@ function renderOverview(s,dueAlert){
       <button class="btn btn-sm" onclick="findOtherDocs('${s.id}','${s.name.replace(/'/g,"\\'")}')"><i class="ti ti-search"></i> Search</button>
     </div>
     <div id="otherDocsList_${s.id}">
-      ${(s.otherDocs&&s.otherDocs.length) ? s.otherDocs.map(f=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg2);margin-bottom:4px">
-          <i class="ti ti-file-type-pdf" style="color:#534AB7;font-size:16px"></i>
-          <a href="${f.url}" target="_blank" style="flex:1;font-size:13px;color:var(--navy);text-decoration:none;font-weight:700">${f.name}</a>
-        </div>`).join('') : '<div style="color:var(--text3);font-size:13px">No additional documents linked yet. Type a document type above and search.</div>'}
+      ${docListHtml(s,'other')}
     </div>
   </div>
   <div class="card">
@@ -948,19 +940,17 @@ async function findFIEDocs(sid, sname){
   try{
     const r = await driveFetch('findStudentFIE&studentName='+encodeURIComponent(sname));
     const s = students.find(x=>x.id===sid);
+    // Only real FIE files (the word "FIE", not "Garfield"/"field"), minus any you removed.
+    const hidden = new Set((s && s.hiddenDocIds) || []);
+    const found = (r.files || []).filter(f => isFieName(f.name) && !hidden.has(f.id));
     if(s && r.files){
-      s.fieDocs = r.files;
+      s.fieDocs = found;
       pushStudent(s);
       saveLocal();
     }
     if(el){
-      if(r.files && r.files.length){
-        el.innerHTML = r.files.map(f=>`
-          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg2);margin-bottom:4px">
-            <i class="ti ti-file-type-pdf" style="color:#A32D2D;font-size:16px"></i>
-            <a href="${f.url}" target="_blank" style="flex:1;font-size:13px;color:var(--navy);text-decoration:none;font-weight:700">${f.name}</a>
-            ${f.isSummary?'<span style="font-size:10px;background:#e8f0f8;color:#185FA5;padding:1px 6px;border-radius:20px">Summary</span>':'<span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:1px 6px;border-radius:20px">Full FIE</span>'}
-          </div>`).join('');
+      if(found.length){
+        el.innerHTML = docListHtml(s || {id:sid, fieDocs:found}, 'fie');
       } else {
         el.innerHTML = '<div style="color:var(--text3);font-size:13px">No matching files found in Drive. Make sure the file name includes the student&#39;s full name and the word "FIE".</div>';
       }
@@ -980,7 +970,8 @@ async function findOtherDocs(sid, sname){
     const s = students.find(x=>x.id===sid);
     if(s){
       const existing = s.otherDocs || [];
-      const newFiles = r.files || [];
+      const hiddenIds = new Set(s.hiddenDocIds || []);
+      const newFiles = (r.files || []).filter(f => !hiddenIds.has(f.id));
       // Merge new results in, avoiding duplicates by file id
       const existingIds = new Set(existing.map(f=>f.id));
       const merged = existing.concat(newFiles.filter(f=>!existingIds.has(f.id)));
@@ -992,12 +983,7 @@ async function findOtherDocs(sid, sname){
     if(el){
       const allDocs = (s && s.otherDocs) || [];
       if(allDocs.length){
-        el.innerHTML = allDocs.map(f=>`
-          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg2);margin-bottom:4px">
-            <i class="ti ti-file-type-pdf" style="color:#534AB7;font-size:16px"></i>
-            <a href="${f.url}" target="_blank" style="flex:1;font-size:13px;color:var(--navy);text-decoration:none;font-weight:700">${f.name}</a>
-            <button onclick="removeOtherDoc('${sid}','${f.id}')" style="border:none;background:none;color:#ccc;cursor:pointer;font-size:16px">&times;</button>
-          </div>`).join('');
+        el.innerHTML = docListHtml(s, 'other');
       } else {
         el.innerHTML = '<div style="color:var(--text3);font-size:13px">No matching files found for "'+keyword+'". Make sure the file name includes the student&#39;s full name and that keyword.</div>';
       }
@@ -1007,26 +993,41 @@ async function findOtherDocs(sid, sname){
   }
 }
 
-function removeOtherDoc(sid, fileId){
+/** "FIE" as its own word — so "Garfield" or "field trip" never count. */
+function isFieName(name){ return /(^|[^a-z])fies?([^a-z]|$)/i.test(String(name||'')); }
+
+/** Linked document list (kind 'fie' or 'other'), each with an X to unlink it. */
+function docListHtml(s, kind){
+  const list = (kind==='fie' ? s.fieDocs : s.otherDocs) || [];
+  if(!list.length){
+    return kind==='fie'
+      ? '<div style="color:var(--text3);font-size:13px">No FIE documents linked yet. Click "Find in Drive" to search.</div>'
+      : '<div style="color:var(--text3);font-size:13px">No additional documents linked yet. Type a document type above and search.</div>';
+  }
+  return list.map(f=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg2);margin-bottom:4px">
+      <i class="ti ti-file-type-pdf" style="color:${kind==='fie'?'#A32D2D':'#534AB7'};font-size:16px"></i>
+      <a href="${f.url}" target="_blank" style="flex:1;min-width:0;font-size:13px;color:var(--navy);text-decoration:none;font-weight:700;overflow-wrap:anywhere">${escapeHtmlLite(f.name)}</a>
+      ${kind==='fie' ? (f.isSummary?'<span style="font-size:10px;background:#e8f0f8;color:#185FA5;padding:1px 6px;border-radius:20px">Summary</span>':'<span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:1px 6px;border-radius:20px">Full FIE</span>') : ''}
+      <button onclick="removeDoc('${s.id}','${kind}','${f.id}')" title="Remove this document from the profile (the file stays in Drive)" aria-label="Remove ${escapeHtmlLite(f.name)}" style="border:none;background:none;color:#8a94a3;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">&times;</button>
+    </div>`).join('');
+}
+
+/** Unlinks a document from the profile (never deletes the Drive file) and keeps it from coming back on the next search. */
+function removeDoc(sid, kind, fileId){
   const s = students.find(x=>x.id===sid);
   if(!s) return;
-  s.otherDocs = (s.otherDocs||[]).filter(f=>f.id!==fileId);
+  const key = kind==='fie' ? 'fieDocs' : 'otherDocs';
+  s[key] = (s[key]||[]).filter(f=>f.id!==fileId);
+  s.hiddenDocIds = Array.from(new Set((s.hiddenDocIds||[]).concat(fileId)));
   pushStudent(s);
   saveLocal();
-  const el = document.getElementById('otherDocsList_'+sid);
-  if(el){
-    if(s.otherDocs.length){
-      el.innerHTML = s.otherDocs.map(f=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg2);margin-bottom:4px">
-          <i class="ti ti-file-type-pdf" style="color:#534AB7;font-size:16px"></i>
-          <a href="${f.url}" target="_blank" style="flex:1;font-size:13px;color:var(--navy);text-decoration:none;font-weight:700">${f.name}</a>
-          <button onclick="removeOtherDoc('${sid}','${f.id}')" style="border:none;background:none;color:#ccc;cursor:pointer;font-size:16px">&times;</button>
-        </div>`).join('');
-    } else {
-      el.innerHTML = '<div style="color:var(--text3);font-size:13px">No additional documents linked yet. Type a document type above and search.</div>';
-    }
-  }
+  const el = document.getElementById((kind==='fie'?'fieDocsList_':'otherDocsList_')+sid);
+  if(el) el.innerHTML = docListHtml(s, kind);
 }
+
+// Older name, kept so nothing that still calls it breaks.
+function removeOtherDoc(sid, fileId){ removeDoc(sid, 'other', fileId); }
 
 function saveStudentNotes(sid){
   const s = students.find(x=>x.id===sid);
