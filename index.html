@@ -66,6 +66,7 @@ body{font-family:Arial,sans-serif;background:var(--bg3);color:var(--text);font-s
 .b-mon{background:#FAEEDA;color:#854F0B}
 .b-dys{background:#EEEDFE;color:#534AB7}
 .b-none{background:var(--bg2);color:var(--text3)}
+.b-eval{background:#FCEBEB;color:#A32D2D;border:1px solid #F0959580}
 /* tabs */
 .tab-bar{display:flex;border-bottom:1px solid var(--border);margin-bottom:14px;overflow-x:auto;gap:0}
 .tab{padding:7px 14px;font-size:13px;cursor:pointer;color:var(--text2);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s;font-family:Arial,sans-serif}
@@ -268,6 +269,7 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
           <span class="pill" onclick="setFilter(this,'Tier 2')">Tier 2</span>
           <span class="pill" onclick="setFilter(this,'Monitor')">Monitor</span>
           <span class="pill" onclick="setFilter(this,'Dyslexia Therapy')">Dyslexia</span>
+          <span class="pill" onclick="setFilter(this,'inprocess')" title="Students with an evaluation in process">In process</span>
         </div>
       </div>
       <div class="sec-lbl">Students <span id="sCount" style="font-weight:400;color:var(--text3)"></span></div>
@@ -777,7 +779,7 @@ function setFilter(el,val){
 function renderList(){
   const q=document.getElementById('searchIn').value.toLowerCase();
   const g=document.getElementById('gradeIn').value;
-  const f=students.filter(s=>s.name.toLowerCase().includes(q)&&(g==='all'||s.grade===g)&&(activeFilter==='all'||s.tier===activeFilter));
+  const f=students.filter(s=>s.name.toLowerCase().includes(q)&&(g==='all'||s.grade===g)&&(activeFilter==='all'||s.tier===activeFilter||(activeFilter==='inprocess'&&s.evalInProcess)));
   document.getElementById('sCount').textContent='('+f.length+')';
   document.getElementById('studentList').innerHTML = f.map(s=>{
     const c=av(students.indexOf(s));
@@ -786,7 +788,7 @@ function renderList(){
     const tl={'Tier 1':'T1','Tier 2':'T2','Monitor':'Mon','Dyslexia Therapy':'DT'}[s.tier]||'—';
     return`<div class="student-item${s.id===currentId?' active':''}" onclick="selectStudent('${s.id}')">
       <div class="avatar" style="background:${c.bg};color:${c.fg}">${ini(s.name)}</div>
-      <div class="si-info"><div class="si-name">${s.name}</div><div class="si-meta">Gr ${s.grade} · ${tl}</div></div>
+      <div class="si-info"><div class="si-name">${s.name}</div><div class="si-meta">Gr ${s.grade} · ${tl}${s.evalInProcess?' · <span style="color:#A32D2D;font-weight:700">In process</span>':''}</div></div>
       <div class="fie-dot" style="background:${dot}" title="FIE: ${d}"></div>
     </div>`;
   }).join('')||'<div style="padding:12px;color:var(--text3);font-size:13px">No students match</div>';
@@ -813,6 +815,7 @@ function selectStudent(id){
           <span><i class="ti ti-school" style="font-size:13px"></i> Grade ${s.grade}</span>
           
           ${tierBadge(s.tier)}
+          ${s.evalInProcess?`<span class="badge b-eval" title="${escapeHtmlLite([s.evalType, s.evalStart?'started '+s.evalStart:'', s.evalExpected?'expected '+s.evalExpected:''].filter(Boolean).join(' · '))}"><i class="ti ti-hourglass" style="font-size:11px"></i> Evaluation in process${s.evalType?' — '+escapeHtmlLite(s.evalType):''}</span>`:''}
         </div>
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
           ${isPrincipal?'':`<button class="btn btn-sm" onclick="showStudentForm('${s.id}')"><i class="ti ti-edit"></i> Edit</button>`}
@@ -1786,10 +1789,21 @@ function openStats(){
       <div class="stat-card"><div class="stat-num" style="color:#0F6E56">${t2}</div><div class="stat-lbl">Tier 2 – Elective</div></div>
       <div class="stat-card"><div class="stat-num" style="color:#A32D2D">${overdue}</div><div class="stat-lbl">FIE overdue</div></div>
     </div>
-    <div class="stats-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px">
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:14px">
       <div class="stat-card"><div class="stat-num" style="color:#854F0B">${mon}</div><div class="stat-lbl">Monitor</div></div>
       <div class="stat-card"><div class="stat-num" style="color:#534AB7">${dt}</div><div class="stat-lbl">Dyslexia Therapy</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:#A32D2D">${students.filter(s=>s.evalInProcess).length}</div><div class="stat-lbl">Evaluations in process</div></div>
     </div>
+    ${(()=>{ const ev=students.filter(s=>s.evalInProcess).sort((a,b)=>String(a.evalExpected||'9').localeCompare(String(b.evalExpected||'9')));
+      if(!ev.length) return '';
+      return `<div class="card"><div class="card-title"><i class="ti ti-hourglass"></i> Evaluations in process</div>
+        ${ev.map(s=>{ const late = s.evalExpected && s.evalExpected < new Date().toISOString().slice(0,10);
+          return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
+            <strong style="min-width:140px">${s.name}</strong>
+            <span style="color:var(--text2);flex:1">Gr ${s.grade}${s.evalType?' · '+escapeHtmlLite(s.evalType):''}${s.evalStart?' · started '+s.evalStart:''}${s.evalNote?' · '+escapeHtmlLite(s.evalNote):''}</span>
+            <span style="font-size:12px;font-weight:700;color:${late?'#A32D2D':'var(--text2)'}">${s.evalExpected?(late?'Past expected ':'Expected ')+s.evalExpected:''}</span>
+            <button class="btn btn-sm" onclick="selectStudent('${s.id}')">View</button></div>`; }).join('')}
+      </div>`; })()}
     <div class="card"><div class="card-title"><i class="ti ti-alert-triangle"></i> FIE alerts</div>
       ${students.filter(s=>fieStatus(s.fieDue)!=='ok').map(s=>{
         const d=fieStatus(s.fieDue);
@@ -1852,6 +1866,17 @@ function showStudentForm(id=null){
 
       <div class="ff"><label>Last FIE date</label><input id="f_lastFie" type="date" value="${s.lastFie||''}"></div>
       <div class="ff"><label>Next FIE due</label><input id="f_fieDue" type="date" value="${s.fieDue||''}"></div>
+      <div class="ff full" style="border:1px solid var(--border2);border-radius:var(--radius);padding:10px 12px;background:var(--bg2)">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0"><input type="checkbox" id="f_evalOn" ${s.evalInProcess?'checked':''} onchange="document.getElementById('f_evalFields').style.display=this.checked?'grid':'none'" style="width:16px;height:16px"> Evaluation in process</label>
+        <div id="f_evalFields" class="form-grid" style="display:${s.evalInProcess?'grid':'none'};margin-top:8px">
+          <div class="ff"><label>Type</label><select id="f_evalType">
+            ${['','Initial FIE','FIE re-evaluation','Dyslexia screening','Outside / private evaluation','Other'].map(o=>`<option value="${o}"${(s.evalType||'')===o?' selected':''}>${o||'—'}</option>`).join('')}
+          </select></div>
+          <div class="ff"><label>Started</label><input id="f_evalStart" type="date" value="${s.evalStart||''}"></div>
+          <div class="ff"><label>Expected done</label><input id="f_evalExpected" type="date" value="${s.evalExpected||''}"></div>
+          <div class="ff"><label>Note</label><input id="f_evalNote" value="${escapeHtmlLite(s.evalNote||'')}" placeholder="e.g. waiting on parent consent"></div>
+        </div>
+      </div>
       <div class="ff"><label>Parent 1 email</label><input id="f_parent1" type="email" value="${s.parent1||''}" placeholder="parent@email.com"></div>
       <div class="ff"><label>Parent 2 email</label><input id="f_parent2" type="email" value="${s.parent2||''}" placeholder="parent@email.com"></div>
     </div>
@@ -1913,7 +1938,13 @@ function saveStudent(){
   const challenges=[...document.querySelectorAll('#formBody .chip[data-g="chal"].on')].map(c=>c.textContent);
   const teacherList=[...document.querySelectorAll('#formBody .chip[data-g="teacher"].on')].map(c=>c.textContent);
 
-  const s={id:editingId||'s'+Date.now(),name,grade:get('f_grade'),tier:get('f_tier'),
+  // Start from the existing record so fields this form doesn't show
+  // (documentation log, FIE/other docs, notes, etc.) are never wiped.
+  const evalOn = !!document.getElementById('f_evalOn')?.checked;
+  const evalFields = { evalInProcess: evalOn,
+    evalType: evalOn?get('f_evalType'):'', evalStart: evalOn?get('f_evalStart'):'',
+    evalExpected: evalOn?get('f_evalExpected'):'', evalNote: evalOn?get('f_evalNote'):'' };
+  const s=Object.assign({}, ex||{}, evalFields, {id:editingId||'s'+Date.now(),name,grade:get('f_grade'),tier:get('f_tier'),
     testDelivery:get('f_delivery'),
     lastFie:get('f_lastFie'),fieDue:get('f_fieDue'),
     parent1:get('f_parent1'),parent2:get('f_parent2'),
@@ -1923,7 +1954,10 @@ function saveStudent(){
     nweaTerm:get('f_nterm'),nweaReading:get('f_nr'),nweaLanguage:get('f_nl'),nweaMath:get('f_nm'),
     teacherList,
     courses:(ex||{}).courses||[],testingHistory:(ex||{}).testingHistory||[],gradeHistory:(ex||{}).gradeHistory||[],
-    progressMonitoring:(ex||{}).progressMonitoring||{entries:[],nwea:[],mapFluency:[]}};
+    progressMonitoring:(ex||{}).progressMonitoring||{entries:[],nwea:[],mapFluency:[]}});
+  // Only take strengths/challenges from the form when it actually shows them.
+  if(document.querySelector('#formBody .chip[data-g="str"]')) s.strengths = strengths;
+  if(document.querySelector('#formBody .chip[data-g="chal"]')) s.challenges = challenges;
 
   if(editingId){const i=students.findIndex(x=>x.id===editingId);if(i>=0)students[i]=s;}
   else students.push(s);
