@@ -1120,6 +1120,7 @@ async function loadTestingCenterVisits(s){
         <div style="font-size:12px;color:var(--text2)">${fmt(ev.date)}</div>
         <div style="min-width:0">
           <div style="font-size:13px;font-weight:700">${escapeHtmlLite(ev.class||'')} <span style="font-weight:400;color:var(--text2)">— ${escapeHtmlLite(ev.teacher||'')}${p.length?' · P'+p.join(', P'):''}</span></div>
+          ${evTopicHtml(ev)}
           ${used.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${used.map(a=>`<span style="font-size:11px;padding:1px 8px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);color:var(--text2)">${escapeHtmlLite(a)}</span>`).join('')}</div>`
             : '<div style="font-size:11px;color:var(--text3);margin-top:3px">No accommodations marked</div>'}
         </div>
@@ -2979,6 +2980,7 @@ async function buildPrepView(){
         </label>
         <div style="flex:1;min-width:220px">
           <div style="font-size:14px;font-weight:700;${isComplete?'text-decoration:line-through;color:var(--text3)':''}">${ev.class}${ev.teacher?' <span style="font-weight:400;color:var(--text2)">— '+ev.teacher+'</span>':''}</div>
+          ${evTopicHtml(ev, 13)}
           <div style="font-size:12px;color:var(--text2);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             ${!isPaperOnly ? `<span>📄 Printing: <b>${paperCount}</b> &nbsp;·&nbsp; 💻 Digital: <b>${digitalCount}</b>${reviewCount?` &nbsp;·&nbsp; <span style="color:#A32D2D">⚠ Needs review: <b>${reviewCount}</b></span>`:''}</span>` : ''}
             ${also?`<span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:var(--bg2);color:var(--text2)">Also ${also}</span>`:''}
@@ -3152,7 +3154,7 @@ function openAccommModal(eventId, studentId, studentName){
       <div style="font-size:15px;font-weight:700;color:var(--navy)">${studentName}</div>
       <button class="btn btn-sm" onclick="document.getElementById('accommModal').remove()"><i class="ti ti-x"></i></button>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:14px">${ev.class}${ev.teacher?' — '+ev.teacher:''} · ${ev.date}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px">${ev.class}${ev.teacher?' — '+ev.teacher:''} · ${ev.date}${evTopic(ev)?'<br>📝 '+escapeHtmlLite(evTopic(ev)):''}</div>
     <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Accommodations used today</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
       ${stuAccomm.map(a=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border:1px solid var(--border);border-radius:8px">
@@ -3735,6 +3737,7 @@ function openCalendar(){
               <option value="6th">6th</option><option value="7th">7th</option><option value="8th">8th</option>
               <option value="9th">9th</option><option value="10th">10th</option><option value="11th">11th</option><option value="12th">12th</option>
             </select></div>
+          <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Test name / topic</label><input type="text" id="ae_title" placeholder="e.g. Ch. 4 Integers Test" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
           <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Notes</label><input type="text" id="ae_notes" placeholder="Optional" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
@@ -3821,6 +3824,21 @@ let calendarChanges = [];
 
 // The sync links each approved event to its Google Calendar event the
 // first time it sees it, so later moves/deletes can be recognized.
+// The teacher's own name for the test (from the Google Calendar title),
+// shown under the class so you don't have to look it up. Hidden when it
+// just repeats the class name.
+function evTopic(ev){
+  const t = String((ev && (ev.title || ev.topic)) || '').trim();
+  if(!t) return '';
+  const sq = x => String(x||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(sq(t) === sq(ev.class)) return '';
+  return t;
+}
+function evTopicHtml(ev, size){
+  const t = evTopic(ev);
+  return t ? `<div style="font-size:${size||12}px;color:var(--navy);margin-top:2px;font-weight:400">📝 ${escapeHtmlLite(t)}</div>` : '';
+}
+
 async function applyCalendarBackfill(list){
   let changed = false;
   list.forEach(b=>{
@@ -3828,6 +3846,7 @@ async function applyCalendarBackfill(list){
     if(!ev) return;
     if(b.gcId && ev.gcId !== b.gcId){ ev.gcId = b.gcId; changed = true; }
     if(b.gcDate && ev.gcDate !== b.gcDate){ ev.gcDate = b.gcDate; changed = true; }
+    if(b.title && !ev.title){ ev.title = b.title; changed = true; }
   });
   if(changed){
     try{ await drivePost({ action:'saveCalendarEvents', events:calendarEvents }); } catch(e){ console.warn('Backfill save failed', e); }
@@ -4102,6 +4121,7 @@ async function approveEvent(idx){
       period: period,
       studentIds: matchingStudentIds,
       level: e.source||'',
+      title: e.title||'',
       notes: notes,
       gcId: e.gcId||'',
       gcDate: e.date,
@@ -4166,7 +4186,7 @@ function renderApprovedEvents(){
   const showPast = document.getElementById('calShowPast')?.checked;
   const filtered = calendarEvents.filter(e=>{
     const matchLevel = !level || e.level===level || e.level==='';
-    const matchQ = !q || (e.class||'').toLowerCase().includes(q) || (e.teacher||'').toLowerCase().includes(q);
+    const matchQ = !q || (e.class||'').toLowerCase().includes(q) || (e.teacher||'').toLowerCase().includes(q) || (e.title||'').toLowerCase().includes(q);
     const isPast = e.date && new Date(e.date+'T12:00:00') < nowTS;
     return matchLevel && matchQ && (!isPast || showPast);
   }).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
@@ -4191,6 +4211,7 @@ function renderApprovedEvents(){
     return `<div style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:10px;background:${isPast?'var(--bg2)':'var(--bg)'}">
       <div style="flex:1">
         <div style="font-size:13px;font-weight:700;${isPast?'color:var(--text3)':''}">${e.class}${e.teacher?' — '+e.teacher:''}</div>
+        ${evTopicHtml(e)}
         <div style="font-size:11px;color:var(--text2);display:flex;gap:8px;margin-top:2px;flex-wrap:wrap">
           <span>${dateStr}</span>${levelBadge}
           ${e.period ? e.period.split(',').map(p=>`<span style="background:#e8f0f8;color:#185FA5;padding:1px 6px;border-radius:20px;font-weight:700;margin-right:2px">P${p.trim()}</span>`).join('') : '<span style="color:#aaa">All periods</span>'}
@@ -4274,13 +4295,14 @@ async function addEventManually(){
     date, type:document.getElementById('ae_type').value,
     class:cls, teacher:document.getElementById('ae_teacher').value.trim(),
     level:document.getElementById('ae_level').value,
+    title:(document.getElementById('ae_title')?.value||'').trim(),
     notes:document.getElementById('ae_notes').value.trim(),
     source:'manual', approved:true, approvedAt:new Date().toISOString()
   };
   calendarEvents.push(ev);
   await saveCalendarEvents();
   document.getElementById('addEventModal').style.display='none';
-  ['ae_date','ae_class','ae_teacher','ae_notes'].forEach(id=>document.getElementById(id).value='');
+  ['ae_date','ae_class','ae_title','ae_teacher','ae_notes'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   renderApprovedEvents();
 }
 
@@ -4316,6 +4338,7 @@ async function approveAll(){
         period: period,
         studentIds: matchingStudentIds,
         level: e.source || '',
+        title: e.title || '',
         notes: notes,
         gcId: e.gcId || '',
         gcDate: e.date,
@@ -4385,6 +4408,8 @@ function editCalEvent(id){
             </label>`;
           }).join('')}
         </div></div>
+      <div style="grid-column:1/-1"><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Test name / topic</label>
+        <input type="text" id="edit_title" value="${escapeHtmlLite(ev.title||'')}" placeholder="e.g. Ch. 4 Integers Test" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
       <div style="grid-column:1/-1"><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Notes</label>
         <input type="text" id="edit_notes" value="${ev.notes||''}" placeholder="Optional" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
       <div style="grid-column:1/-1;padding-top:10px;border-top:1px dashed var(--border2)">
@@ -4479,6 +4504,8 @@ function saveEditCalEvent(id){
   ev.class = document.getElementById('edit_course')?.value||ev.class;
   ev.period = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('edit_p'+p)?.checked).map(String).join(',');
   ev.notes = document.getElementById('edit_notes')?.value||'';
+  const titleEl = document.getElementById('edit_title');
+  if(titleEl) ev.title = titleEl.value.trim();
   // Recalculate student IDs based on updated teacher/course/periods
   const editPeriods = ev.period ? ev.period.split(',') : [];
   ev.studentIds = getMatchingStudentIds(ev.teacher, ev.class, editPeriods);
