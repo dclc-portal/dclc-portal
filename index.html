@@ -2997,6 +2997,7 @@ async function buildPrepView(){
           <button class="btn btn-sm" style="color:#854F0B;border-color:#EF9F2780;font-size:11px" onclick="markNotInLC('${ev.id}')">Not in LC</button>
         </div>
       </div>
+      <div class="hubSlot" data-ev="${ev.id}">${hubSlotHtml(ev)}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
         <div style="display:flex;flex-direction:column;gap:4px">${studs.map(s=>renderStudentRow(ev,s)).join('')}</div>
         <div>
@@ -3063,6 +3064,288 @@ async function buildPrepView(){
   }).join('');
 
   el.innerHTML = html || '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px">No upcoming events match students in your caseload.</div>';
+  hubAfterPrepRender();
+}
+
+// ── DIGITAL TEST BUILD + PRINT (Testing Center Prep ↔ Testing Hub) ──
+// Status, building and printing all go through the Testing Hub's own
+// code (connected to this portal's script as the "Hub" library).
+let hubStatus = null;          // { events: { [eventId]: {...} } }
+let hubStatusAt = 0;
+let hubStatusErr = '';
+let hubStatusLoading = false;
+const hubOpen = {};            // eventId -> 'build' | 'print'
+const hubFiles = {};           // eventId -> { name, text }
+const hubBusy = {};            // eventId -> true while building
+const hubMsg = {};             // eventId -> { ok, text }
+const hubEveryone = {};        // eventId -> bool (one question at a time for everyone)
+
+function hubAfterPrepRender(){
+  paintHubSlots();
+  if(!hubStatusLoading && (!hubStatus || Date.now() - hubStatusAt > 120000)) loadHubStatus();
+}
+
+async function loadHubStatus(){
+  hubStatusLoading = true; hubStatusErr = '';
+  paintHubSlots();
+  try{
+    const r = await driveFetch('hubPrepStatus');
+    if(r && r.ok){ hubStatus = r; hubStatusAt = Date.now(); }
+    else hubStatusErr = (r && (r.error || r.message)) || 'Could not reach the Testing Hub.';
+  } catch(e){ hubStatusErr = 'Could not reach the Testing Hub.'; }
+  hubStatusLoading = false;
+  paintHubSlots();
+}
+
+function paintHubSlots(){
+  document.querySelectorAll('.hubSlot').forEach(el=>{
+    const ev = (calendarEvents||[]).find(e=>e.id===el.getAttribute('data-ev'));
+    el.innerHTML = ev ? hubSlotHtml(ev) : '';
+  });
+}
+
+const hubChip = (txt, kind) => {
+  const c = { ok:['#E1F5EE','#0F6E56'], bad:['#FCEBEB','#A32D2D'], warn:['#FAEEDA','#854F0B'], gray:['var(--bg2)','var(--text2)'] }[kind];
+  return `<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:${c[0]};color:${c[1]};white-space:nowrap">${txt}</span>`;
+};
+const pList = ps => (ps||[]).map(p=>'P'+p).join(', ');
+
+function hubSlotHtml(ev){
+  if(!hubStatus){
+    if(hubStatusErr) return `<div style="font-size:12px;color:#A32D2D;margin:-4px 0 10px">💻 ${escapeHtmlLite(hubStatusErr)}</div>`;
+    return `<div style="font-size:12px;color:var(--text3);margin:-4px 0 10px">💻 Checking digital test…</div>`;
+  }
+  const st = hubStatus.events[ev.id];
+  if(!st) return '';
+  const id = ev.id;
+  const canEdit = !isPrincipal;
+  const chips = [];
+  let canBuild = false;
+  if(st.status==='paper') return '';                      // card already says Paper only
+  if(st.status==='allpaper') chips.push(hubChip('All paper — no file needed','warn'));
+  else if(st.status==='noperiod') chips.push(hubChip('Add a period in Test Calendar to build','bad'));
+  else if(st.status==='badcourse') chips.push(hubChip('Course isn’t on the teacher’s schedule — fix it in Test Calendar','bad'));
+  else if(st.status==='built'){ chips.push(hubChip('💻 Digital test built','ok')); canBuild = true; }
+  else if(st.status==='partial'){
+    const done = st.periods.filter(p=>st.missing.indexOf(p)===-1);
+    chips.push(hubChip('💻 Built — '+pList(done),'ok'));
+    chips.push(hubChip(pList(st.missing)+(st.missing.length>1?' need':' needs')+' a file','bad'));
+    canBuild = true;
+  }
+  else if(st.status==='notbuilt'){ chips.push(hubChip('💻 Digital test not built','bad')); canBuild = true; }
+
+  const subs = st.submissions || [];
+  const unprinted = subs.filter(s=>!s.printed).length;
+  const btns = [];
+  if(st.built && st.built.link) btns.push(`<a class="btn btn-sm" href="${escapeHtmlLite(st.built.link)}" target="_blank" rel="noopener">Open student link</a>`);
+  if(subs.length) btns.push(`<button class="btn btn-sm" onclick="hubToggle('${id}','print')">🖨 ${subs.length} submitted${unprinted?` · <b style="color:#A32D2D">${unprinted} not printed</b>`:' · all printed'}</button>`);
+  if(canEdit && canBuild) btns.push(`<button class="btn btn-sm" style="background:var(--navy);color:#fff;border-color:var(--navy)" onclick="hubToggle('${id}','build')">${st.status==='built'?'Replace test file':'Build digital test'}</button>`);
+
+  let html = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-4px 0 10px">
+    ${chips.join('')}
+    ${st.built && st.built.title ? `<span style="font-size:12px;color:var(--text2)">${escapeHtmlLite(st.built.title)}</span>` : ''}
+    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">${btns.join('')}</span>
+  </div>`;
+  if(hubMsg[id]) html += `<div style="font-size:12px;margin:-4px 0 10px;color:${hubMsg[id].ok?'#0F6E56':'#A32D2D'};font-weight:700">${escapeHtmlLite(hubMsg[id].text)}</div>`;
+  if(hubOpen[id]==='build' && canEdit && canBuild) html += hubBuildPanel(ev, st);
+  if(hubOpen[id]==='print') html += hubPrintPanel(ev, st);
+  return html;
+}
+
+function hubBuildPanel(ev, st){
+  const id = ev.id, f = hubFiles[id], busy = hubBusy[id];
+  const everyone = !!hubEveryone[id];
+  const done = st.periods.filter(p=>st.missing.indexOf(p)===-1);
+  let buttons = '';
+  const dis = (!f || busy) ? 'disabled' : '';
+  const primary = 'background:var(--navy);color:#fff;border-color:var(--navy)';
+  if(st.status==='partial'){
+    buttons = `<button class="btn btn-sm" style="${primary}" ${dis} onclick="hubBuild('${id}','missing')">${busy?'Building…':'Build for '+pList(st.missing)}</button>
+      <button class="btn btn-sm" ${dis} onclick="hubBuild('${id}','all')">Build for all periods (replaces ${pList(done)})</button>`;
+  } else {
+    const lbl = st.status==='built' ? 'Replace test file' : (st.periods.length>1 ? 'Build for all '+st.periods.length+' periods' : 'Build test');
+    buttons = `<button class="btn btn-sm" style="${primary}" ${dis} onclick="hubBuild('${id}','all')">${busy?'Building…':lbl}</button>`;
+  }
+  const ra = (st.readAloudNames||[]).length ? `<div style="font-size:12px;color:var(--text2);margin:6px 0">🔊 Read aloud turns on automatically for ${st.readAloudNames.map(escapeHtmlLite).join(', ')}.</div>` : '';
+  const pacingLine = st.dig ? (st.pacingCount ? `${st.pacingCount} of ${st.dig} digital students checked for one at a time below` : 'none checked for one at a time below yet') : 'no digital students';
+  return `<div style="background:#f6faff;border:1px solid #c9dcef;border-radius:8px;padding:12px;margin:0 0 12px">
+    <div style="font-size:13px;font-weight:700;color:var(--navy)">${st.status==='built'?'Replace':'Build'} digital test — ${escapeHtmlLite(ev.class)} · ${escapeHtmlLite(ev.teacher||'')} · ${escapeHtmlLite(fmtShortDate(ev.date))}</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:2px">Periods: ${st.periods.map(p=>st.missing.indexOf(p)===-1&&st.status!=='notbuilt'?'<b>P'+p+' (built)</b>':'<b>P'+p+'</b>').join(', ')} · Saves to Digital Tests › ${escapeHtmlLite(ev.teacher||'')} › ${escapeHtmlLite(ev.class)}</div>
+    ${(st.offPeriods||[]).length?`<div style="font-size:12px;color:#A32D2D;margin-top:4px">Heads up: the schedule shows this course in ${pList(st.taughtPeriods)||'no periods'}, not ${pList(st.offPeriods)}.</div>`:''}
+    <button type="button" onclick="hubPickFile('${id}')" style="display:block;width:100%;border:2px dashed ${f?'#97C459':'#9FC2E7'};border-radius:8px;padding:14px;text-align:center;color:${f?'#0F6E56':'#185FA5'};background:#fff;margin:10px 0;cursor:pointer;font-size:13px;font-family:Arial">
+      ${f ? 'Loaded: '+escapeHtmlLite(f.name)+' — click to choose a different file' : 'Click to choose the test JSON file'}</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" ${everyone?'checked':''} onchange="hubEveryone['${id}']=this.checked;paintHubSlots()" style="width:15px;height:15px"> <b>One question at a time for everyone</b></label>
+    <div style="font-size:11px;color:var(--text3);margin:2px 0 0 21px">${everyone?'Every digital student gets one question at a time.':'Unchecked: set per student — '+pacingLine+'.'}</div>
+    ${ra}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${buttons}<button class="btn btn-sm" onclick="hubToggle('${id}','build')">Cancel</button></div>
+  </div>`;
+}
+
+function hubPrintPanel(ev, st){
+  const id = ev.id;
+  const subs = (st.submissions||[]).slice().sort((a,b)=>Number(a.printed)-Number(b.printed) || a.studentName.localeCompare(b.studentName));
+  const unprinted = subs.filter(s=>!s.printed);
+  return `<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:0 0 12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="font-size:13px;font-weight:700;color:var(--navy)">Finished digital tests</span>
+      ${unprinted.length>1?`<button class="btn btn-sm" style="margin-left:auto" onclick="hubPrint('${id}','unprinted')">Print all ${unprinted.length} not printed</button>`:''}
+    </div>
+    ${subs.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border);font-size:13px">
+      <span style="flex:1">${escapeHtmlLite(s.studentName)}</span>
+      <span style="font-size:11px;color:var(--text3)">${s.submitted?new Date(s.submitted).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):''}</span>
+      ${s.printed?hubChip('Printed','ok'):hubChip('Not printed','bad')}
+      <button class="btn btn-sm" onclick="hubPrint('${id}',${s.rowNum})">Print</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+function hubToggle(id, which){
+  hubOpen[id] = hubOpen[id]===which ? null : which;
+  if(hubOpen[id]==='build') hubMsg[id] = null;
+  paintHubSlots();
+}
+
+function hubPickFile(id){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json,text/plain';
+  inp.onchange = () => {
+    const file = inp.files && inp.files[0]; if(!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try{ JSON.parse(rd.result); } catch(e){ hubMsg[id] = { ok:false, text:'That file isn’t a test JSON file — check you picked the right one.' }; paintHubSlots(); return; }
+      hubFiles[id] = { name:file.name, text:rd.result }; hubMsg[id] = null; paintHubSlots();
+    };
+    rd.readAsText(file);
+  };
+  inp.click();
+}
+
+async function hubBuild(id, mode){
+  const f = hubFiles[id]; if(!f || hubBusy[id]) return;
+  hubBusy[id] = true; hubMsg[id] = null; paintHubSlots();
+  try{
+    const r = await drivePost({ action:'hubBuild', eventId:id, jsonText:f.text, fileName:f.name, everyone:!!hubEveryone[id], mode });
+    if(r && r.ok){
+      hubMsg[id] = { ok:true, text:(r.replaced?'Replaced — ':'Built — ')+'“'+(r.title||'test')+'” is live'+(r.periods?' for '+pList(r.periods):'')+'.' };
+      delete hubFiles[id]; hubOpen[id] = null;
+      hubBusy[id] = false;
+      await loadHubStatus();
+      return;
+    }
+    hubMsg[id] = { ok:false, text:(r && (r.error||r.message)) || 'The build didn’t finish. Try again.' };
+  } catch(e){ hubMsg[id] = { ok:false, text:'Could not reach the Testing Hub. Try again.' }; }
+  hubBusy[id] = false; paintHubSlots();
+}
+
+// Print finished digital tests — same layout as the Testing Hub's print tab.
+async function hubPrint(id, which){
+  const st = hubStatus && hubStatus.events[id]; if(!st) return;
+  const rows = which==='unprinted' ? st.submissions.filter(s=>!s.printed).map(s=>s.rowNum) : [which];
+  let ov = document.getElementById('hubPrintOv');
+  if(!ov){
+    ov = document.createElement('div'); ov.id = 'hubPrintOv';
+    ov.style.cssText = 'display:none;position:fixed;inset:0;z-index:3000;background:#f4f6f9;overflow:auto;padding:20px';
+    document.body.appendChild(ov);
+    const css = document.createElement('style');
+    css.textContent = HUB_PRINT_CSS + '#hubPrintOv .hpo-bar{display:flex;gap:8px;max-width:720px;margin:0 auto 14px}#hubPrintOv .hp-doc{background:#fff;border:1px solid #ddd;border-radius:6px;padding:30px 34px}';
+    document.head.appendChild(css);
+  }
+  ov.innerHTML = `<div class="hpo-bar"><button class="btn" onclick="hubClosePrint()">← Back</button>
+    <button class="btn btn-primary" id="hubPrintBtn" disabled onclick="hubDoPrint()">Loading…</button></div>
+    <div id="hubPrintDocs"><div style="padding:20px;color:#666">Loading…</div></div>`;
+  ov.style.display = 'block';
+  ov.dataset.ev = id; ov.dataset.rows = JSON.stringify(rows);
+  const docs = [];
+  for(const rn of rows){
+    try{
+      const r = await fetch(scriptUrl+'?action=hubSubmission&row='+rn).then(x=>x.json());
+      if(r && r.ok) docs.push(`<div class="hp-doc"><h2 class="hp-title">${escapeHtmlLite(r.testTitle)}</h2><p class="hp-student">${escapeHtmlLite(r.studentName)}</p>${hubPrintDoc(r.items||[])}</div>`);
+      else docs.push(`<div class="hp-doc"><p style="color:#b00020">${escapeHtmlLite((r&&r.error)||'Could not load this test.')}</p></div>`);
+    } catch(e){ docs.push('<div class="hp-doc"><p style="color:#b00020">Could not load this test.</p></div>'); }
+  }
+  if(document.getElementById('hubPrintOv') !== ov || ov.style.display==='none') return;
+  document.getElementById('hubPrintDocs').innerHTML = docs.join('');
+  const b = document.getElementById('hubPrintBtn'); b.disabled = false;
+  b.textContent = rows.length>1 ? 'Print all '+rows.length : 'Print this test';
+}
+
+function hubClosePrint(){ const ov=document.getElementById('hubPrintOv'); if(ov) ov.style.display='none'; }
+
+const HUB_PRINT_CSS = `
+.hp-doc{max-width:720px;margin:0 auto 34px;font-family:Georgia,'Times New Roman',serif;color:#000;page-break-after:always}
+.hp-doc:last-child{page-break-after:auto}
+.hp-title{font-size:19px;font-weight:bold;text-align:center;margin:0 0 2px}
+.hp-student{text-align:center;font-style:italic;color:#333;margin:0 0 22px}
+.hp-doc .pq{margin-bottom:16px;page-break-inside:avoid}
+.hp-doc .pq-text{font-size:14.5px;line-height:1.55;white-space:pre-line}
+.hp-doc .pq-num{font-weight:bold;margin-right:4px}
+.hp-doc .pq-choices{margin:6px 0 0 24px;font-size:14px}
+.hp-doc .pq-choice{margin-bottom:3px}
+.hp-doc .pq-mark{display:inline-block;width:16px}
+.hp-doc .pq-selected{font-weight:bold;text-decoration:underline}
+.hp-doc .pq-answerline{margin:6px 0 0 24px;font-size:14px}
+.hp-doc .pq-blank{font-weight:bold;text-decoration:underline;padding:0 4px}
+.hp-doc .pq-blank-empty{color:#999;font-weight:normal;font-style:italic}
+.hp-doc .pq-bank{margin:0 0 8px 24px;font-size:13px;font-style:italic;color:#333}
+.hp-doc .pq-matchrow{font-size:14px;margin:3px 0 3px 24px;display:flex;align-items:baseline;gap:4px}
+.hp-doc .pq-matchrow .pq-blank{flex:0 0 auto;min-width:90px}
+.hp-doc .pq-sectionheader{font-size:15px;font-weight:700;text-align:center;text-decoration:underline;margin:26px 0 12px}
+.hp-doc .pq-img{display:block;max-width:100%;height:auto;margin:8px 0 8px 24px;border:1px solid #ccc}`;
+
+function hubDoPrint(){
+  const ov = document.getElementById('hubPrintOv'); if(!ov) return;
+  const rows = JSON.parse(ov.dataset.rows||'[]'), id = ov.dataset.ev;
+  const docs = document.getElementById('hubPrintDocs').innerHTML;
+  const w = window.open('', '_blank');
+  if(!w){ alert('Your browser blocked the print window — allow pop-ups for this page and try again.'); return; }
+  w.document.write('<!DOCTYPE html><html><head><title>Finished tests</title><style>body{margin:20px}@page{margin:0.6in}@media print{body{margin:0}}'+HUB_PRINT_CSS+'</style></head><body>'+docs+'</body></html>');
+  w.document.close(); w.focus(); setTimeout(()=>w.print(), 400);
+  if(isPrincipal) return;
+  rows.forEach(rn=>drivePost({ action:'hubMarkPrinted', rowNum:rn }));
+  const st = hubStatus && hubStatus.events[id];
+  if(st) st.submissions.forEach(s=>{ if(rows.indexOf(s.rowNum)!==-1) s.printed = true; });
+  paintHubSlots();
+}
+
+function hubStartsWithNumber(t){ return /^\s*\d+\s*[.)]\s+/.test(t); }
+function hubStartsWithLetter(t){ return /^\s*[A-Za-z]\s*[.)]\s+/.test(t); }
+
+function hubPrintDoc(items){
+  const esc = escapeHtmlLite;
+  let html = '', qNum = 0;
+  items.forEach(item=>{
+    if(item.kind==='header'){
+      html += '<div class="pq-sectionheader">'+esc(item.text)+'</div>';
+      if(item.image) html += '<img class="pq-img" src="'+esc(item.image)+'" alt="">';
+      return;
+    }
+    qNum++;
+    html += '<div class="pq">';
+    const qText = item.question || '';
+    if(qText.trim()) html += '<div class="pq-text">'+(hubStartsWithNumber(qText)?'':'<span class="pq-num">'+qNum+'.</span>')+esc(qText)+'</div>';
+    if(item.image) html += '<img class="pq-img" src="'+esc(item.image)+'" alt="">';
+    const opts = item.type==='truefalse' ? ['True','False'] : item.options;
+    if((item.type==='multiplechoice' || item.type==='truefalse') && opts && opts.length){
+      html += '<div class="pq-choices">';
+      opts.forEach((opt,i)=>{
+        const sel = String(opt)===String(item.answer), t = String(opt);
+        const letter = hubStartsWithLetter(t) ? '' : String.fromCharCode(65+i)+') ';
+        html += '<div class="pq-choice'+(sel?' pq-selected':'')+'"><span class="pq-mark">'+(sel?'&#9679;':'&#9675;')+'</span>'+letter+esc(t)+'</div>';
+      });
+      html += '</div>';
+    } else if(item.type==='matching' && item.matching){
+      if(item.bank && item.bank.length) html += '<div class="pq-bank">Word bank: '+item.bank.map(esc).join(' &nbsp;&bull;&nbsp; ')+'</div>';
+      item.matching.forEach((m,i)=>{
+        const has = m.answer && m.answer!=='(blank)', rt = m.item || '';
+        html += '<div class="pq-matchrow"><span class="pq-blank'+(has?'':' pq-blank-empty')+'">'+esc(has?m.answer:'no answer')+'</span> &nbsp;'+(hubStartsWithNumber(rt)?'':(i+1)+'. ')+esc(rt)+'</div>';
+      });
+    } else {
+      const has = item.answer && item.answer!=='(blank)';
+      html += '<div class="pq-answerline">Answer: <span class="pq-blank'+(has?'':' pq-blank-empty')+'">'+esc(has?item.answer:'no answer')+'</span></div>';
+    }
+    html += '</div>';
+  });
+  return html;
 }
 
 async function markPaperOnly(id){
@@ -3975,16 +4258,16 @@ function renderPendingEvents(){
         <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Class / Course</label>
           <input type="text" id="pe_class_${i}" value="${e.parsedClass||e.title}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px"></div>
         <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Type</label>
-          <select id="pe_type_${i}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
+          <select id="pe_type_${i}" onchange="peValidate(${i})" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
             ${['Test','Quiz','Assignment','Project','Presentation','Other'].map(t=>`<option${e.parsedType===t?' selected':''}>${t}</option>`).join('')}
           </select></div>
         <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Teacher</label>
-          <select id="pe_teacher_${i}" onchange="updateCourseDropdown(${i})" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
+          <select id="pe_teacher_${i}" onchange="updateCourseDropdown(${i});peValidate(${i})" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
             <option value="">Select teacher...</option>
             ${Object.keys(TEACHER_COURSES).sort().map(t=>`<option value="${t}"${e.parsedTeacher===t?' selected':''}>${t}</option>`).join('')}
           </select></div>
         <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Course</label>
-          <select id="pe_course_${i}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
+          <select id="pe_course_${i}" onchange="peValidate(${i})" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
             <option value="">Select course...</option>
             ${e.parsedTeacher && TEACHER_COURSES[e.parsedTeacher] ? TEACHER_COURSES[e.parsedTeacher].map(c=>`<option value="${c}"${(e.parsedClass||e.class)===c?' selected':''}>${c}</option>`).join('') : ''}
           </select></div>
@@ -3996,7 +4279,7 @@ function renderPendingEvents(){
               const evText=(e.title||e.parsedClass||'').toLowerCase();
               const detected = evText.includes(p+suf+' period')||evText.includes('period '+p)||evText.includes(p+' period')||evText.includes(','+p+suf)||evText.includes(p+suf+',')||evText.includes('('+p+suf)||evText.includes('/'+p+suf)||evText.includes(p+suf+'/');
               return `<label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer;padding:3px 8px;border:1px solid var(--border2);border-radius:6px;background:${detected?'#e8f0f8':'var(--bg)'}">
-                <input type="checkbox" id="pe_p${p}_${i}" value="${p}" ${detected?'checked':''} style="width:14px;height:14px"> P${p}
+                <input type="checkbox" id="pe_p${p}_${i}" value="${p}" ${detected?'checked':''} onchange="peValidate(${i})" style="width:14px;height:14px"> P${p}
               </label>`;
             }).join('')}
           </div>
@@ -4009,15 +4292,57 @@ function renderPendingEvents(){
           <div id="pe_dates_${i}" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${peDateChipsHtml(e._dates,i)}</div>
           <div style="font-size:11px;color:var(--text3);margin-top:3px">Add more than one date if this same class is testing on both an A day and a B day — each date gets its own row in Testing Center Prep so attendance is tracked per day.</div>
         </div>
+        <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Test name / topic</label>
+          <input type="text" id="pe_title_${i}" value="${escapeHtmlLite(e.title||'')}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px"></div>
         <div><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:3px">Notes</label>
           <input type="text" id="pe_notes_${i}" value="${e.description||''}" placeholder="Optional" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px"></div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn btn-sm" style="background:#0F6E56;color:#fff;border-color:#0F6E56" onclick="approveEvent(${i})"><i class="ti ti-check"></i> Approve</button>
+      <div id="pe_val_${i}" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="btn btn-sm" id="pe_ok_${i}" style="background:#0F6E56;color:#fff;border-color:#0F6E56" onclick="approveEvent(${i})"><i class="ti ti-check"></i> Approve</button>
         <button class="btn btn-sm" style="color:#A32D2D;border-color:#F0959580" onclick="discardEvent(${i})"><i class="ti ti-x"></i> Discard</button>
       </div>
     </div>`;
   }).join('');
+  pendingEvents.forEach((e,i)=>peValidate(i));
+}
+
+// ── Approval checks: course picked from the list, at least one period,
+// and a heads-up when the type isn't Test/Quiz (the Testing Hub and
+// Prep's build button only list tests and quizzes).
+function peCheck(i){
+  const g = id => document.getElementById(id+'_'+i);
+  const teacher = g('pe_teacher')?.value || '';
+  const course = g('pe_course')?.value || '';
+  const hasList = !!(teacher && typeof TEACHER_COURSES!=='undefined' && (TEACHER_COURSES[teacher]||[]).length);
+  const typed = (g('pe_class')?.value || '').trim();
+  const periods = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('pe_p'+p+'_'+i)?.checked);
+  const type = g('pe_type')?.value || '';
+  const errs = {};
+  if(!teacher) errs.teacher = 'Pick the teacher';
+  else if(hasList && !course) errs.course = 'Pick the course from the list';
+  else if(!hasList && !typed) errs.course = 'This teacher has no course list — type the class name';
+  if(!periods.length) errs.periods = 'Check at least one period — with none, every student this teacher has is put on the test';
+  const warn = (type && !/^(test|quiz)$/i.test(type)) ? 'Is this a test or quiz? Only Tests and Quizzes can have a digital test built.' : '';
+  return { ok: !Object.keys(errs).length, errs, warn, course: hasList ? course : typed };
+}
+
+function peValidate(i){
+  const c = peCheck(i);
+  const mark = (id, bad) => { const el=document.getElementById(id+'_'+i); if(el){ el.style.border = bad ? '2px solid #E24B4A' : '1px solid var(--border2)'; el.style.background = bad ? '#FFF5F5' : ''; } };
+  mark('pe_teacher', !!c.errs.teacher);
+  mark('pe_course', !!c.errs.course);
+  mark('pe_type', !!c.warn);
+  const val = document.getElementById('pe_val_'+i);
+  if(val){
+    const lines = Object.values(c.errs).map(t=>`<div style="color:#A32D2D;font-size:11px;font-weight:700">⚠ ${t}</div>`);
+    if(c.warn) lines.push(`<div style="color:#854F0B;font-size:11px;font-weight:700">${c.warn}</div>`);
+    val.innerHTML = lines.join('');
+  }
+  const ok = document.getElementById('pe_ok_'+i);
+  if(ok){ ok.disabled = !c.ok; ok.style.opacity = c.ok ? '1' : '.45'; ok.style.cursor = c.ok ? 'pointer' : 'not-allowed';
+          ok.title = c.ok ? '' : 'Approve unlocks once the teacher, course and period are set'; }
+  return c;
 }
 
 // courseName / periods are optional. When a student has the same teacher
@@ -4094,8 +4419,11 @@ function getMatchingStudentIds(teacher, course, periods){
 
 async function approveEvent(idx){
   const e = pendingEvents[idx];
+  const chk = peValidate(idx);
+  if(!chk.ok) return;
   const teacher = document.getElementById('pe_teacher_'+idx)?.value||'';
-  const course = document.getElementById('pe_course_'+idx)?.value||document.getElementById('pe_class_'+idx)?.value||e.title;
+  const course = chk.course;
+  const evTitle = (document.getElementById('pe_title_'+idx)?.value||'').trim() || e.title || '';
   const selectedPeriods = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('pe_p'+p+'_'+idx)?.checked).map(String);
   const period = selectedPeriods.join(',');
   const type = document.getElementById('pe_type_'+idx)?.value||'Test';
@@ -4121,7 +4449,7 @@ async function approveEvent(idx){
       period: period,
       studentIds: matchingStudentIds,
       level: e.source||'',
-      title: e.title||'',
+      title: evTitle,
       notes: notes,
       gcId: e.gcId||'',
       gcDate: e.date,
@@ -4316,11 +4644,16 @@ function updateCourseDropdown(idx){
 
 async function approveAll(){
   if(!pendingEvents.length){ alert('No pending events to approve.'); return; }
-  if(!confirm(`Approve all ${pendingEvents.length} pending events? Any changes you made to teacher, course, or periods will be saved.`)) return;
+  const okIdx = pendingEvents.map((e,i)=>i).filter(i=>peValidate(i).ok);
+  const skipped = pendingEvents.length - okIdx.length;
+  if(!okIdx.length){ alert('None of these are ready yet — each one needs a teacher, a course from the list, and at least one period.'); return; }
+  if(!confirm(`Approve ${okIdx.length} pending event${okIdx.length!==1?'s':''}?`+(skipped?`\n\n${skipped} still need${skipped===1?'s':''} a course or period and will stay in the list.`:''))) return;
+  const keep = pendingEvents.filter((e,i)=>okIdx.indexOf(i)===-1);
   pendingEvents.forEach(function(e, i) {
-    // Use form values if they exist, otherwise fall back to auto-detected
+    if(okIdx.indexOf(i)===-1) return;
     const teacher = document.getElementById('pe_teacher_'+i)?.value || e.parsedTeacher || '';
-    const course = document.getElementById('pe_course_'+i)?.value || e.parsedClass || e.title;
+    const course = peCheck(i).course;
+    const evTitle = (document.getElementById('pe_title_'+i)?.value||'').trim() || e.title || '';
     const type = document.getElementById('pe_type_'+i)?.value || e.parsedType || 'Test';
     const notes = document.getElementById('pe_notes_'+i)?.value || e.description || '';
     const selectedPeriods = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('pe_p'+p+'_'+i)?.checked).map(String);
@@ -4338,7 +4671,7 @@ async function approveAll(){
         period: period,
         studentIds: matchingStudentIds,
         level: e.source || '',
-        title: e.title || '',
+        title: evTitle,
         notes: notes,
         gcId: e.gcId || '',
         gcDate: e.date,
@@ -4348,7 +4681,7 @@ async function approveAll(){
       });
     });
   });
-  pendingEvents = [];
+  pendingEvents = keep;
   await saveCalendarEvents();
   renderPendingEvents();
   renderApprovedEvents();
@@ -4498,6 +4831,12 @@ function editUpdateCourses(){
 function saveEditCalEvent(id){
   const ev = calendarEvents.find(e=>e.id===id);
   if(!ev) return;
+  const _t = document.getElementById('edit_teacher')?.value||ev.teacher;
+  const _c = document.getElementById('edit_course')?.value||'';
+  const _hasList = !!(_t && (TEACHER_COURSES[_t]||[]).length);
+  const _ps = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('edit_p'+p)?.checked);
+  if(_hasList && !_c){ alert('Pick the course from the list before saving.'); return; }
+  if(!_ps.length){ alert('Check at least one period before saving — with none, every student this teacher has is put on the test.'); return; }
   ev.date = document.getElementById('edit_date')?.value||ev.date;
   ev.type = document.getElementById('edit_type')?.value||ev.type;
   ev.teacher = document.getElementById('edit_teacher')?.value||ev.teacher;
