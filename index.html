@@ -67,6 +67,7 @@ body{font-family:Arial,sans-serif;background:var(--bg3);color:var(--text);font-s
 .b-dys{background:#EEEDFE;color:#534AB7}
 .b-none{background:var(--bg2);color:var(--text3)}
 .b-eval{background:#FCEBEB;color:#A32D2D;border:1px solid #F0959580}
+.b-inactive{background:#EDEDEA;color:#555;border:1px solid #ccc}
 /* tabs */
 .tab-bar{display:flex;border-bottom:1px solid var(--border);margin-bottom:14px;overflow-x:auto;gap:0}
 .tab{padding:7px 14px;font-size:13px;cursor:pointer;color:var(--text2);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s;font-family:Arial,sans-serif}
@@ -271,6 +272,7 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
           <span class="pill" onclick="setFilter(this,'Monitor')">Monitor</span>
           <span class="pill" onclick="setFilter(this,'Dyslexia Therapy')">Dyslexia</span>
           <span class="pill" onclick="setFilter(this,'inprocess')" title="Students with an evaluation in process">In process</span>
+          <span class="pill" onclick="setFilter(this,'inactive')" title="Students no longer receiving services (kept on file, not counted)">Inactive</span>
         </div>
       </div>
       <div class="sec-lbl">Students <span id="sCount" style="font-weight:400;color:var(--text3)"></span></div>
@@ -777,10 +779,18 @@ function setFilter(el,val){
   el.classList.add('on'); activeFilter=val; renderList();
 }
 
+// ── ACTIVE / INACTIVE ─────────────────────────────────────────
+// Inactive = no longer receiving services. Their record and history stay
+// in the portal, but they're left out of counts, reports, test matching
+// and the student list (unless the Inactive filter is on).
+function isActive(s){ return !s.inactive; }
+function activeStudents(){ return students.filter(isActive); }
+function countInactive(){ return students.filter(s=>s.inactive).length; }
+
 function renderList(){
   const q=document.getElementById('searchIn').value.toLowerCase();
   const g=document.getElementById('gradeIn').value;
-  const f=students.filter(s=>s.name.toLowerCase().includes(q)&&(g==='all'||s.grade===g)&&(activeFilter==='all'||s.tier===activeFilter||(activeFilter==='inprocess'&&s.evalInProcess)));
+  const f=students.filter(s=>s.name.toLowerCase().includes(q)&&(g==='all'||s.grade===g)&&(activeFilter==='inactive' ? !!s.inactive : (isActive(s)&&(activeFilter==='all'||s.tier===activeFilter||(activeFilter==='inprocess'&&s.evalInProcess)))));
   document.getElementById('sCount').textContent='('+f.length+')';
   document.getElementById('studentList').innerHTML = f.map(s=>{
     const c=av(students.indexOf(s));
@@ -789,10 +799,29 @@ function renderList(){
     const tl={'Tier 1':'T1','Tier 2':'T2','Monitor':'Mon','Dyslexia Therapy':'DT'}[s.tier]||'—';
     return`<div class="student-item${s.id===currentId?' active':''}" onclick="selectStudent('${s.id}')">
       <div class="avatar" style="background:${c.bg};color:${c.fg}">${ini(s.name)}</div>
-      <div class="si-info"><div class="si-name">${s.name}</div><div class="si-meta">Gr ${s.grade} · ${tl}${s.evalInProcess?' · <span style="color:#A32D2D;font-weight:700">In process</span>':''}</div></div>
+      <div class="si-info"><div class="si-name">${s.name}</div><div class="si-meta">Gr ${s.grade} · ${s.inactive?'<span style="color:#777;font-weight:700">Inactive</span>':tl}${s.evalInProcess&&!s.inactive?' · <span style="color:#A32D2D;font-weight:700">In process</span>':''}</div></div>
       <div class="fie-dot" style="background:${dot}" title="FIE: ${d}"></div>
     </div>`;
   }).join('')||'<div style="padding:12px;color:var(--text3);font-size:13px">No students match</div>';
+}
+
+function setStudentActive(id, makeActive){
+  if(isPrincipal) return;
+  const s = students.find(x=>x.id===id); if(!s) return;
+  if(makeActive){
+    if(!confirm('Return '+s.name+' to active services? They will be counted again.')) return;
+    s.inactive = false;
+    s.reactivatedAt = new Date().toISOString().slice(0,10);
+  } else {
+    const note = prompt('Mark '+s.name+' inactive?\n\nTheir record stays in the portal, but they won\'t be counted in active services, reports, or test matching.\n\nOptional note (e.g. "Exited services 10/2026"):', '');
+    if(note === null) return;
+    s.inactive = true;
+    s.inactiveSince = new Date().toISOString().slice(0,10);
+    s.inactiveNote = note.trim();
+  }
+  saveLocal(); pushStudent(s);
+  if(!makeActive && activeFilter!=='inactive'){ renderList(); }
+  selectStudent(id);
 }
 
 // ── SELECT & RENDER ────────────────────────────────────────────
@@ -815,16 +844,20 @@ function selectStudent(id){
         <div class="profile-meta">
           <span><i class="ti ti-school" style="font-size:13px"></i> Grade ${s.grade}</span>
           
-          ${tierBadge(s.tier)}
+          ${s.inactive?`<span class="badge b-inactive" title="${escapeHtmlLite(s.inactiveNote||'')}"><i class="ti ti-player-pause" style="font-size:11px"></i> Inactive since ${escapeHtmlLite(s.inactiveSince||'')}</span>`:tierBadge(s.tier)}
           ${s.evalInProcess?`<span class="badge b-eval" title="${escapeHtmlLite([s.evalType, s.evalStart?'started '+s.evalStart:'', s.evalExpected?'expected '+s.evalExpected:''].filter(Boolean).join(' · '))}"><i class="ti ti-hourglass" style="font-size:11px"></i> Evaluation in process${s.evalType?' — '+escapeHtmlLite(s.evalType):''}</span>`:''}
         </div>
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
           ${isPrincipal?'':`<button class="btn btn-sm" onclick="showStudentForm('${s.id}')"><i class="ti ti-edit"></i> Edit</button>`}
+          ${isPrincipal?'':(s.inactive
+            ? `<button class="btn btn-sm" style="color:#0F6E56;border-color:#9FE1CB" onclick="setStudentActive('${s.id}',true)"><i class="ti ti-player-play"></i> Return to active services</button>`
+            : `<button class="btn btn-sm" onclick="setStudentActive('${s.id}',false)" title="No longer receiving services — keeps their record but stops counting them"><i class="ti ti-player-pause"></i> Mark inactive</button>`)}
           <button class="btn btn-sm btn-green" onclick="openPrint('${s.id}')"><i class="ti ti-printer"></i> Print snapshot</button>
           ${isPrincipal?'':`<button class="btn btn-sm" style="color:#A32D2D;border-color:#F0959580" onclick="deleteStudent('${s.id}')"><i class="ti ti-trash"></i> Delete</button>`}
         </div>
       </div>
     </div>
+    ${s.inactive?`<div class="alert" style="background:#F2F2EF;border:1px solid #ccc;color:#555;margin-bottom:10px"><i class="ti ti-player-pause"></i> <div><strong>Inactive since ${escapeHtmlLite(s.inactiveSince||'')}</strong> — record kept, but not counted in active services, reports, or test matching.${s.inactiveNote?'<br><span style="font-size:12px">Note: '+escapeHtmlLite(s.inactiveNote)+'</span>':''}</div></div>`:''}
     <div class="tab-bar">
       <div class="tab active" onclick="showTab('overview',this)">Overview</div>
       <div class="tab" onclick="showTab('snapshot',this)">Teacher snapshot</div>
@@ -1776,6 +1809,8 @@ function logEmailAsEntry(sid, dateStr, subject, snippet){
 
 // ── OVERVIEW STATS ─────────────────────────────────────────────
 function openStats(){
+  const inactiveCount=countInactive();
+  const students=activeStudents();   // counts below are active students only
   const total=students.length;
   const t1=students.filter(s=>s.tier==='Tier 1').length;
   const t2=students.filter(s=>s.tier==='Tier 2').length;
@@ -1791,10 +1826,11 @@ function openStats(){
       <div class="stat-card"><div class="stat-num" style="color:#0F6E56">${t2}</div><div class="stat-lbl">Tier 2 – Elective</div></div>
       <div class="stat-card"><div class="stat-num" style="color:#A32D2D">${overdue}</div><div class="stat-lbl">FIE overdue</div></div>
     </div>
-    <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:14px">
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-bottom:14px">
       <div class="stat-card"><div class="stat-num" style="color:#854F0B">${mon}</div><div class="stat-lbl">Monitor</div></div>
       <div class="stat-card"><div class="stat-num" style="color:#534AB7">${dt}</div><div class="stat-lbl">Dyslexia Therapy</div></div>
       <div class="stat-card"><div class="stat-num" style="color:#A32D2D">${students.filter(s=>s.evalInProcess).length}</div><div class="stat-lbl">Evaluations in process</div></div>
+      <div class="stat-card" style="cursor:pointer" title="Show inactive students in the list" onclick="const p=[...document.querySelectorAll('.pill')].find(x=>x.textContent==='Inactive'); if(p) setFilter(p,'inactive');"><div class="stat-num" style="color:#777">${inactiveCount}</div><div class="stat-lbl">Inactive (not counted)</div></div>
     </div>
     ${(()=>{ const ev=students.filter(s=>s.evalInProcess).sort((a,b)=>String(a.evalExpected||'9').localeCompare(String(b.evalExpected||'9')));
       if(!ev.length) return '';
@@ -2830,7 +2866,7 @@ async function buildPrepView(){
     // Use stored student IDs if available (set during approval)
     let matchedStudents;
     if(ev.studentIds && ev.studentIds.length > 0){
-      matchedStudents = students.filter(s => ev.studentIds.includes(s.id));
+      matchedStudents = students.filter(s => isActive(s) && ev.studentIds.includes(s.id));
     } else {
     const evText = ((ev.class||'') + ' ' + (ev.title||'')).toLowerCase();
     const gradeMap = {
@@ -2854,7 +2890,7 @@ async function buildPrepView(){
     const evClass = (ev.class||'').toLowerCase().trim();
 
     const matchedStudentsResult = students.filter(s=>{
-      if(!ev.teacher) return false;
+      if(!ev.teacher || !isActive(s)) return false;
       // Grade filter
       if(evGrade && s.grade !== evGrade) return false;
       // MS/HS level filter
@@ -3493,7 +3529,7 @@ function runTestingSummary(){
   const course = document.getElementById('ts_course')?.value || '';
 
   // Filter students
-  let filtered = students.filter(s => {
+  let filtered = activeStudents().filter(s => {
     const matchTeacher = !teacher || (s.teacherList||[]).includes(teacher);
     const matchGrade = !grade || s.grade === grade;
     // Period filter: check if student has the selected teacher in the selected period
@@ -3694,11 +3730,11 @@ function renderSchoolWideReport(){
   const esc = escapeHtmlLite;
 
   // MS/HS from this portal's own students
-  const msStu = students.filter(s=>['6','7','8'].includes(String(s.grade)));
-  const hsStu = students.filter(s=>['9','10','11','12'].includes(String(s.grade)));
+  const msStu = activeStudents().filter(s=>['6','7','8'].includes(String(s.grade)));
+  const hsStu = activeStudents().filter(s=>['9','10','11','12'].includes(String(s.grade)));
   const served = {};
   if(elemOk) Object.keys(swData.byGrade||{}).forEach(g=>served[g]=swData.byGrade[g]);
-  students.forEach(s=>{ const g=String(s.grade); served[g]=(served[g]||0)+1; });
+  activeStudents().forEach(s=>{ const g=String(s.grade); served[g]=(served[g]||0)+1; });
   const cnt = { elem: elemOk ? swData.count : 0, ms: msStu.length, hs: hsStu.length };
   const enr = { elem: sum(SW_DIV[0].grades,E), ms: sum(SW_DIV[1].grades,E), hs: sum(SW_DIV[2].grades,E) };
   const T = cnt.elem+cnt.ms+cnt.hs, TE = enr.elem+enr.ms+enr.hs;
@@ -3870,7 +3906,7 @@ function renderCaseloadReport(){
   const tier = document.getElementById('rep_tier')?.value || '';
   const diag = document.getElementById('rep_diag')?.value || '';
 
-  const filtered = students.filter(s=>
+  const filtered = activeStudents().filter(s=>
     (!grade || s.grade===grade) &&
     (!tier || s.tier===tier) &&
     (!diag || (s.diagnoses||[]).includes(diag))
@@ -4209,7 +4245,7 @@ function isRelevantToStudents(ev){
   const evClass = (ev.parsedClass||ev.title||ev.class||'').toLowerCase().trim();
   
   // Check if any DCLC student has this teacher
-  const hasTeacher = students.some(s=>{
+  const hasTeacher = activeStudents().some(s=>{
     return (s.teacherList||[]).some(t=>{
       const stuT = t.toLowerCase().trim();
       const tParts = stuT.split(' ');
@@ -4226,7 +4262,7 @@ function isRelevantToStudents(ev){
   // Check if any student has this teacher for this specific course
   if(typeof STUDENT_SCHEDULES === 'undefined') return true;
   
-  return students.some(s=>{
+  return activeStudents().some(s=>{
     const sch = STUDENT_SCHEDULES[s.name];
     if(!sch || !sch.courses) return false;
     return sch.courses.some(c=>{
@@ -4547,7 +4583,7 @@ function getMatchingStudentIds(teacher, course, periods){
   if(!teacher && !course) return [];
   const matchingIds = [];
   
-  students.forEach(s=>{
+  activeStudents().forEach(s=>{
     // Check teacher match
     if(teacher){
       const hasTeacher = (s.teacherList||[]).some(t=>{
