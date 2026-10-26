@@ -3639,24 +3639,193 @@ function openReports(){
     </div>
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px">
       <button id="repTab1" onclick="switchReportsTab(1)" style="padding:8px 18px;font-size:13px;font-weight:700;color:var(--navy);background:none;border:none;border-bottom:2px solid var(--navy);margin-bottom:-2px;cursor:pointer;font-family:Arial">Caseload Overview</button>
+      ${isPrincipal ? '' : `<button id="repTab3" onclick="switchReportsTab(3)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">School Wide Overview</button>`}
       <button id="repTab2" onclick="switchReportsTab(2)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">Student Detail</button>
     </div>
     <div id="repPanel1"></div>
+    <div id="repPanel3" style="display:none"></div>
     <div id="repPanel2" style="display:none"></div>`;
   buildCaseloadReport();
 }
 
 function switchReportsTab(tab){
-  document.getElementById('repPanel1').style.display = tab===1 ? 'block' : 'none';
-  document.getElementById('repPanel2').style.display = tab===2 ? 'block' : 'none';
-  document.getElementById('repTab1').style.cssText = tab===1
-    ? 'padding:8px 18px;font-size:13px;font-weight:700;color:var(--navy);background:none;border:none;border-bottom:2px solid var(--navy);margin-bottom:-2px;cursor:pointer;font-family:Arial'
-    : 'padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial';
-  document.getElementById('repTab2').style.cssText = tab===2
-    ? 'padding:8px 18px;font-size:13px;font-weight:700;color:var(--navy);background:none;border:none;border-bottom:2px solid var(--navy);margin-bottom:-2px;cursor:pointer;font-family:Arial'
-    : 'padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial';
+  const on  = 'padding:8px 18px;font-size:13px;font-weight:700;color:var(--navy);background:none;border:none;border-bottom:2px solid var(--navy);margin-bottom:-2px;cursor:pointer;font-family:Arial';
+  const off = 'padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial';
+  [1,2,3].forEach(n=>{
+    const p = document.getElementById('repPanel'+n), b = document.getElementById('repTab'+n);
+    if(p) p.style.display = tab===n ? 'block' : 'none';
+    if(b) b.style.cssText = tab===n ? on : off;
+  });
   if(tab===1) buildCaseloadReport();
   if(tab===2) buildStudentReportPicker();
+  if(tab===3) buildSchoolWideReport();
+}
+
+// ── SCHOOL WIDE OVERVIEW ───────────────────────────────────────
+// Counts and percentages only — no student names. Elementary numbers come
+// from the elementary portal's data file, read-only, through the
+// 'schoolWideSummary' action (the two portals stay separate).
+const SW_COLORS = { elem:'#1E7F86', ms:'#9CC5A1', hs:'#3E4C59' };
+const SW_GRADES = ['K3','K4','K5','1','2','3','4','5','6','7','8','9','10','11','12'];
+const SW_DIV = [
+  { key:'elem', name:'Elementary', range:'K3–5', grades:['K3','K4','K5','1','2','3','4','5'] },
+  { key:'ms',   name:'Middle school', range:'6–8', grades:['6','7','8'] },
+  { key:'hs',   name:'High school', range:'9–12', grades:['9','10','11','12'] }
+];
+let swData = null;
+
+async function buildSchoolWideReport(){
+  const panel = document.getElementById('repPanel3');
+  if(!panel) return;
+  panel.innerHTML = '<div style="color:var(--text3);font-size:13px">Loading school-wide numbers…</div>';
+  try{
+    swData = await driveFetch('schoolWideSummary');
+  } catch(e){ swData = { ok:false, error: e.message }; }
+  renderSchoolWideReport();
+}
+
+function renderSchoolWideReport(){
+  const panel = document.getElementById('repPanel3');
+  if(!panel) return;
+  const E = (swData && swData.enrollment) || {};
+  const elemOk = !!(swData && swData.ok);
+  const sum = (ks,o)=>ks.reduce((a,k)=>a+(Number(o[k])||0),0);
+  const pct = (a,b)=> b ? (a/b*100).toFixed(1)+'%' : '—';
+  const esc = escapeHtmlLite;
+
+  // MS/HS from this portal's own students
+  const msStu = students.filter(s=>['6','7','8'].includes(String(s.grade)));
+  const hsStu = students.filter(s=>['9','10','11','12'].includes(String(s.grade)));
+  const served = {};
+  if(elemOk) Object.keys(swData.byGrade||{}).forEach(g=>served[g]=swData.byGrade[g]);
+  students.forEach(s=>{ const g=String(s.grade); served[g]=(served[g]||0)+1; });
+  const cnt = { elem: elemOk ? swData.count : 0, ms: msStu.length, hs: hsStu.length };
+  const enr = { elem: sum(SW_DIV[0].grades,E), ms: sum(SW_DIV[1].grades,E), hs: sum(SW_DIV[2].grades,E) };
+  const T = cnt.elem+cnt.ms+cnt.hs, TE = enr.elem+enr.ms+enr.hs;
+
+  const tierRows = L => [['Tier 1 – Testing', L.filter(s=>s.tier==='Tier 1').length],
+                         ['Tier 2 – Elective class', L.filter(s=>s.tier==='Tier 2').length],
+                         ['Monitor', L.filter(s=>s.tier==='Monitor').length],
+                         ['Dyslexia therapy', L.filter(s=>s.tier==='Dyslexia Therapy').length]].filter((r,i)=>i<3||r[1]>0);
+  const elemRows = elemOk ? [['Serviced',swData.count],['Dyslexia (MTA)',swData.dyslexia],['Speech',swData.speech],['BUILD (26-27 form)',swData.build],['DNQ',swData.dnq]] : [];
+  const divRows = [elemRows, tierRows(msStu), tierRows(hsStu)];
+
+  const today = new Date().toISOString().slice(0,10);
+  const in90 = new Date(Date.now()+90*86400000).toISOString().slice(0,10);
+  const past = L=>L.filter(s=>s.fieDue && s.fieDue<today).length;
+  const soon = L=>L.filter(s=>s.fieDue && s.fieDue>=today && s.fieDue<=in90).length;
+  const across = [
+    ['Evaluations in process', elemOk?swData.evalInProcess:'—', msStu.filter(s=>s.evalInProcess).length, hsStu.filter(s=>s.evalInProcess).length],
+    ['Re-evals past due', elemOk?swData.reevalPastDue:'—', past(msStu), past(hsStu)],
+    ['Re-evals due in next 90 days', elemOk?swData.reevalNext90:'—', soon(msStu), soon(hsStu)]
+  ];
+
+  // Diagnoses
+  const dx = {};
+  const add = (label,i,n)=>{ (dx[label]=dx[label]||[0,0,0])[i]+=n; };
+  if(elemOk){ Object.keys(swData.diagnoses||{}).forEach(d=>add(d,0,swData.diagnoses[d])); if(swData.noDiagnosis) add('No diagnosis on file',0,swData.noDiagnosis); }
+  [[msStu,1],[hsStu,2]].forEach(([L,i])=>L.forEach(s=>{
+    const ds = s.diagnoses||[];
+    if(!ds.length) add('No diagnosis on file',i,1);
+    ds.forEach(d=>add(d==='Other' ? 'Other (MS/HS — see student file)' : d, i, 1));
+  }));
+  const dxRows = Object.keys(dx).map(k=>[k].concat(dx[k]))
+    .sort((a,b)=>(a[0]==='No diagnosis on file')-(b[0]==='No diagnosis on file') || (b[1]+b[2]+b[3])-(a[1]+a[2]+a[3]) || a[0].localeCompare(b[0]));
+
+  const C = [SW_COLORS.elem, SW_COLORS.ms, SW_COLORS.hs];
+  const maxServed = Math.max(1, ...SW_GRADES.map(g=>served[g]||0));
+  const monthYear = new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'});
+
+  panel.innerHTML = `
+  <style>
+    .sw-card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--bg)}
+    .sw-ct{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+    .sw-ct small{font-weight:400;color:var(--text3);font-size:11px}
+    .sw-big{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:10px}
+    .sw-stat{background:var(--bg2);border-radius:8px;padding:12px;text-align:center;border-top:4px solid transparent}
+    .sw-stat.all{background:var(--navy);color:#fff}
+    .sw-n{font-size:26px;font-weight:700;color:var(--navy)} .sw-stat.all .sw-n{color:#fff}
+    .sw-p{font-size:13px;font-weight:700;margin-top:2px}
+    .sw-l{font-size:11px;color:var(--text3);margin-top:3px} .sw-stat.all .sw-l{color:#cfd8e3}
+    .sw-cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .sw-cols h4{margin:0 0 6px;font-size:12px;color:var(--navy);padding-left:7px}
+    .sw-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f0f0ec;font-size:12px}
+    .sw-tbl{width:100%;border-collapse:collapse;font-size:13px}
+    .sw-tbl th{font-size:11px;color:var(--text3);text-align:right;font-weight:700;padding:5px 6px;border-bottom:1px solid var(--border)}
+    .sw-tbl td{padding:6px;border-bottom:1px solid #f0f0ec;text-align:right}
+    .sw-tbl th:first-child,.sw-tbl td:first-child{text-align:left}
+    .sw-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:#eee;min-width:80px}
+    .sw-key span{display:inline-flex;align-items:center;gap:4px;margin-left:12px;font-size:11px;color:var(--text2);font-weight:400}
+    .sw-key i{width:10px;height:10px;border-radius:2px;display:inline-block}
+    .sw-grades{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:6px}
+    .sw-g{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+    .sw-g .c{width:100%;border-radius:3px 3px 0 0} .sw-g .v{font-size:10px;color:var(--text2);margin-bottom:2px}
+    .sw-g .x{font-size:10px;color:var(--text3);margin-top:3px;text-align:center}
+    .sw-enr{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+    .sw-enr label{font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:2px}
+    .sw-enr input{width:100%;padding:5px 6px;border:1px solid var(--border2);border-radius:6px;font-size:13px;font-family:Arial;box-sizing:border-box}
+    @media (max-width:760px){ .sw-big,.sw-cols{grid-template-columns:1fr 1fr} .sw-enr{grid-template-columns:repeat(4,1fr)} }
+    @media print{ .sw-noprint{display:none!important} }
+  </style>
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;gap:10px;flex-wrap:wrap">
+    <div><div style="font-size:15px;font-weight:700;color:var(--navy)">School Wide Overview</div>
+      <div style="font-size:13px;color:var(--text2)">K3–12 · ${monthYear} · counts only, no student names</div></div>
+    <div class="sw-noprint" style="display:flex;gap:8px">
+      <button class="btn btn-sm" onclick="toggleSwEnrollment()"><i class="ti ti-users"></i> Enrollment</button>
+      <button class="btn btn-sm" onclick="buildSchoolWideReport()"><i class="ti ti-refresh"></i> Refresh</button>
+      <button class="btn btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Print</button>
+    </div>
+  </div>
+  ${elemOk ? '' : `<div class="alert al-amber" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Elementary numbers couldn't be loaded${swData&&swData.error?': '+esc(swData.error):''}. MS/HS numbers below are current.</div>`}
+  <div id="swEnrollBox" class="sw-card sw-noprint" style="display:none">
+    <div class="sw-ct">Enrollment by grade <small>update once a year — percentages use these numbers</small></div>
+    <div class="sw-enr">${SW_GRADES.map(g=>`<div><label>${/^K/.test(g)?g:'Gr '+g}</label><input type="number" min="0" id="swE_${g}" value="${Number(E[g])||0}"></div>`).join('')}</div>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="btn btn-primary btn-sm" onclick="saveSwEnrollment()">Save enrollment</button><span id="swEnrollMsg" style="font-size:12px;color:var(--text3)"></span></div>
+  </div>
+
+  <div class="sw-card"><div class="sw-ct">Students serviced <small>% = share of that division's enrollment</small></div>
+    <div class="sw-big">
+      <div class="sw-stat all"><div class="sw-n">${T}</div><div class="sw-p">${pct(T,TE)}</div><div class="sw-l">School-wide · of ${TE} enrolled</div></div>
+      ${SW_DIV.map((d,i)=>`<div class="sw-stat" style="border-top-color:${C[i]}"><div class="sw-n">${i===0&&!elemOk?'—':cnt[d.key]}</div><div class="sw-p">${i===0&&!elemOk?'':pct(cnt[d.key],enr[d.key])}</div><div class="sw-l">${d.name} (${d.range}) · of ${enr[d.key]}</div></div>`).join('')}
+    </div></div>
+
+  <div class="sw-card"><div class="sw-ct">Services by division</div>
+    <div class="sw-cols">${SW_DIV.map((d,i)=>`<div><h4 style="border-left:4px solid ${C[i]}">${d.name} · ${i===0&&!elemOk?'—':cnt[d.key]}</h4>
+      ${divRows[i].map(([l,v])=>`<div class="sw-row"><span>${l}</span><b>${v} · ${cnt[d.key]?Math.round(v/cnt[d.key]*100):0}%</b></div>`).join('') || '<div class="sw-row"><span style="color:var(--text3)">Not available</span></div>'}</div>`).join('')}</div>
+    <table class="sw-tbl" style="margin-top:12px"><tr><th>Across all divisions</th><th>Elem</th><th>MS</th><th>HS</th><th>School-wide</th></tr>
+      ${across.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td><b>${(Number(r[1])||0)+r[2]+r[3]}</b></td></tr>`).join('')}</table>
+  </div>
+
+  <div class="sw-card"><div class="sw-ct">Diagnosis breakdown — school-wide
+      <span class="sw-key"><span><i style="background:${C[0]}"></i>Elem</span><span><i style="background:${C[1]}"></i>MS</span><span><i style="background:${C[2]}"></i>HS</span></span></div>
+    <table class="sw-tbl"><tr><th style="width:28%">Diagnosis</th><th style="width:24%;text-align:left">Split</th><th>Elem</th><th>MS</th><th>HS</th><th>Total</th><th>% serviced</th><th>% enrolled</th></tr>
+      ${dxRows.map(([n,a,b,c])=>{ const t=a+b+c; return `<tr><td>${esc(n)}</td><td><div class="sw-bar">${[a,b,c].map((v,i)=>v?`<div style="width:${v/t*100}%;background:${C[i]}"></div>`:'').join('')}</div></td><td>${a}</td><td>${b}</td><td>${c}</td><td><b>${t}</b></td><td>${pct(t,T)}</td><td>${pct(t,TE)}</td></tr>`; }).join('')}
+    </table>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">A student with two diagnoses counts in both rows, so the rows add up to more than the number of students serviced. Elementary "Other" is shown as Speech / Language.</div>
+  </div>
+
+  <div class="sw-card"><div class="sw-ct">Students serviced by grade <small>bar = count · under = % of that grade's enrollment</small></div>
+    <div class="sw-grades">${SW_GRADES.map((g,i)=>{ const v=served[g]||0, col=C[i<8?0:i<11?1:2];
+      return `<div class="sw-g"><div class="v">${v}</div><div class="c" style="height:${Math.round(v/maxServed*120)}px;background:${col}"></div><div class="x"><b>${g}</b><br>${E[g]?Math.round(v/E[g]*100)+'%':'—'}</div></div>`; }).join('')}</div>
+  </div>
+  <div style="text-align:right;font-size:11px;color:var(--text3)">Updated ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>`;
+}
+
+function toggleSwEnrollment(){
+  const b = document.getElementById('swEnrollBox');
+  if(b) b.style.display = b.style.display==='none' ? 'block' : 'none';
+}
+
+async function saveSwEnrollment(){
+  const enrollment = {};
+  SW_GRADES.forEach(g=>{ enrollment[g] = parseInt(document.getElementById('swE_'+g)?.value,10)||0; });
+  const msg = document.getElementById('swEnrollMsg');
+  if(msg) msg.textContent = 'Saving…';
+  try{
+    const r = await drivePost({ action:'saveEnrollment', enrollment });
+    if(r && r.ok){ swData = Object.assign({}, swData||{}, { enrollment: r.enrollment }); renderSchoolWideReport(); }
+    else if(msg) msg.textContent = (r && r.error) || 'Could not save.';
+  } catch(e){ if(msg) msg.textContent = 'Could not save: '+e.message; }
 }
 
 function buildCaseloadReport(){
