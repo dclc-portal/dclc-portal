@@ -173,6 +173,7 @@ body.principal-mode [onclick^="saveGradeEntry"],
 body.principal-mode [onclick^="showProgressEntryForm"],
 body.principal-mode [onclick^="saveProgressEntry"],
 body.principal-mode [onclick^="showNweaForm"],
+body.principal-mode [onclick^="showNweaImport"],
 body.principal-mode [onclick^="saveNwea"],
 body.principal-mode [onclick^="showFluencyForm"],
 body.principal-mode [onclick^="saveFluency"],
@@ -237,6 +238,7 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
       <button class="btn" onclick="openReports()"><i class="ti ti-chart-dots"></i> Reports</button>
       <button class="btn" onclick="showRosterImport()"><i class="ti ti-table-import"></i> Import roster</button>
       <button class="btn" onclick="showScheduleImport()"><i class="ti ti-calendar-event"></i> Import schedules</button>
+      <button class="btn" onclick="showNweaImport()"><i class="ti ti-chart-line"></i> Import NWEA</button>
       <button class="btn" onclick="openLoginReport()"><i class="ti ti-login"></i> Login report</button>
       <button class="btn btn-primary" onclick="showStudentForm()"><i class="ti ti-plus"></i> Add student</button>
     </div>
@@ -891,6 +893,7 @@ function renderOverview(s,dueAlert){
     <div class="card-title"><i class="ti ti-stethoscope"></i> Diagnosis</div>
     ${(s.diagnoses||[]).length ? s.diagnoses.map(d=>`<span class="tag">${d}</span>`).join('') : '<span style="color:var(--text3);font-size:13px">None recorded</span>'}
   </div>
+  ${nweaSummaryCard(s)}
   ${(()=>{
     const sch = (typeof STUDENT_SCHEDULES!=='undefined') ? (STUDENT_SCHEDULES[s.name]||null) : null;
     if(!sch || !sch.courses || !sch.courses.length) return '';
@@ -1105,10 +1108,7 @@ function renderSnapshot(s,c){
   </div>
   <div class="card"><div class="card-title"><i class="ti ti-adjustments"></i> Approved accommodations</div>${acList||'<div style="color:var(--text3);font-size:13px">None recorded</div>'}</div>
   ${cRows?`<div class="card"><div class="card-title"><i class="ti ti-school"></i> Course impact notes</div>${cRows}</div>`:''}
-  ${hasN?`<div class="card"><div class="card-title"><i class="ti ti-chart-line"></i> NWEA MAP — ${s.nweaTerm||'most recent'}</div>
-    <div class="nwea-grid"><div class="nwea-blk"><div class="nwea-score">${s.nweaReading||'—'}</div><div class="nwea-lbl">Reading RIT</div></div>
-    <div class="nwea-blk"><div class="nwea-score">${s.nweaLanguage||'—'}</div><div class="nwea-lbl">Language RIT</div></div>
-    <div class="nwea-blk"><div class="nwea-score">${s.nweaMath||'—'}</div><div class="nwea-lbl">Math RIT</div></div></div></div>`:''}
+  ${nweaSummaryCard(s)}
   <div class="card" style="border-left:3px solid var(--navy);border-radius:0 var(--radius-lg) var(--radius-lg) 0">
     <div class="card-title"><i class="ti ti-message-circle"></i> Student voice — what ${s.name.split(' ')[0]} wants you to know</div>
     <div class="voice-card"><div class="voice-prompt">How I learn best</div>${s.voiceLearn||'—'}</div>
@@ -1245,6 +1245,215 @@ function renderGrades(s){
   </div>`;
 }
 
+// ── NWEA MAP RESULTS (imported from the NWEA Combined Data File) ─────────
+// Every score in the file has a place: one result per subject per term
+// (Reading, Language Usage, Math / Algebra 1 / Geometry / Algebra 2,
+// Science / Life Sciences) with RIT, error range, percentile, achievement
+// level, Lexile or Quantile, goal-area scores, test date, minutes,
+// rapid-guessing % and the accommodations used. Stored on s.nweaResults.
+const NWEA_SUBJECT = { 'Reading':'Reading', 'Language Usage':'Language Usage', 'Math K-12':'Math', 'Algebra 1':'Algebra 1',
+  'Geometry':'Geometry', 'Algebra 2':'Algebra 2', 'Science K-12':'Science', 'Life Sciences':'Life Sciences' };
+const NWEA_ORDER = ['Reading','Language Usage','Math','Algebra 1','Geometry','Algebra 2','Science','Life Sciences'];
+const NWEA_LEVEL_STYLE = { 'Low':'background:#FCEBEB;color:#A32D2D', 'LoAvg':'background:#FAEEDA;color:#854F0B',
+  'Avg':'background:#F1EFE8;color:#555', 'HiAvg':'background:#E1F5EE;color:#0F6E56', 'High':'background:#CDEBDF;color:#0F6E56' };
+const nweaTermSel = {};
+
+// Orders terms through the school year: Fall 2026 < Winter 2027 < Spring 2027 < Fall 2027
+function nweaTermKey(t){ const m=/(Fall|Winter|Spring)\s+(\d{4})/i.exec(t||''); if(!m) return 0;
+  const y=+m[2], sz=m[1].toLowerCase(); return sz==='fall' ? y*10+1 : (y-1)*10+(sz==='winter'?2:3); }
+function nweaPickTerm(id,v){ nweaTermSel[id]=v; selectStudent(id);
+  setTimeout(()=>{ const t=[...document.querySelectorAll('.tab')].find(x=>x.textContent.trim()==='Progress monitoring'); if(t) t.click(); },30); }
+function nweaTerms(s){ return [...new Set((s.nweaResults||[]).map(r=>r.term))].sort((a,b)=>nweaTermKey(b)-nweaTermKey(a)); }
+function nweaSort(a,b){ return NWEA_ORDER.indexOf(a.subject)-NWEA_ORDER.indexOf(b.subject); }
+function nweaLevelChip(l){ return l ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;white-space:nowrap;${NWEA_LEVEL_STYLE[l]||'background:#eee;color:#555'}">${escapeHtmlLite(l)}</span>` : ''; }
+function nweaOrd(n){ n=+n; if(!n) return '—'; const s=['th','st','nd','rd'], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
+
+function nweaSummaryCard(s){
+  const terms = nweaTerms(s);
+  if(terms.length){
+    const t = terms[0];
+    const rows = (s.nweaResults||[]).filter(r=>r.term===t).sort(nweaSort);
+    return `<div class="card"><div class="card-title"><i class="ti ti-chart-line"></i> NWEA MAP — ${escapeHtmlLite(t)}</div>
+      <div class="nwea-grid" style="grid-template-columns:repeat(${Math.min(rows.length,4)},1fr)">${rows.map(r=>`<div class="nwea-blk">
+        <div class="nwea-score">${escapeHtmlLite(r.rit||'—')}</div><div class="nwea-lbl">${escapeHtmlLite(r.subject)} RIT</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text2);margin-top:2px">${r.pct?nweaOrd(r.pct)+' %ile':''}</div></div>`).join('')}</div></div>`;
+  }
+  if(s.nweaReading||s.nweaLanguage||s.nweaMath){
+    return `<div class="card"><div class="card-title"><i class="ti ti-chart-line"></i> NWEA MAP — ${escapeHtmlLite(s.nweaTerm||'most recent')}</div>
+    <div class="nwea-grid"><div class="nwea-blk"><div class="nwea-score">${s.nweaReading||'—'}</div><div class="nwea-lbl">Reading RIT</div></div>
+    <div class="nwea-blk"><div class="nwea-score">${s.nweaLanguage||'—'}</div><div class="nwea-lbl">Language RIT</div></div>
+    <div class="nwea-blk"><div class="nwea-score">${s.nweaMath||'—'}</div><div class="nwea-lbl">Math RIT</div></div></div></div>`;
+  }
+  return '';
+}
+
+function nweaResultsHtml(s){
+  const terms = nweaTerms(s);
+  if(!terms.length) return '';
+  const sel = nweaTermSel[s.id] && (nweaTermSel[s.id]==='all' || terms.includes(nweaTermSel[s.id])) ? nweaTermSel[s.id] : terms[0];
+  const show = sel==='all' ? terms : [sel];
+  const prevOf = (r) => { // same subject, the term before this one
+    const older = (s.nweaResults||[]).filter(x=>x.subject===r.subject && nweaTermKey(x.term)<nweaTermKey(r.term)).sort((a,b)=>nweaTermKey(b.term)-nweaTermKey(a.term));
+    return older[0] || null;
+  };
+  const th = 'padding:6px 8px;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3)';
+  const block = t => {
+    const rows = (s.nweaResults||[]).filter(r=>r.term===t).sort(nweaSort);
+    return `${sel==='all'?`<div style="font-size:12px;font-weight:700;color:var(--navy);margin:10px 0 4px">${escapeHtmlLite(t)}</div>`:''}
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+      <thead><tr><th style="${th};text-align:left">Subject</th><th style="${th};text-align:center">RIT</th><th style="${th};text-align:center">Percentile</th><th style="${th};text-align:center">Achievement</th><th style="${th};text-align:left">Lexile / Quantile</th><th style="${th};text-align:left">Test</th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const p = prevOf(r), d = p && r.rit && p.rit ? (+r.rit)-(+p.rit) : null;
+        const arrow = d===null ? '' : `<div style="font-size:11px;font-weight:700;color:${d>0?'#3B6D11':d<0?'#A32D2D':'#854F0B'}" title="Since ${escapeHtmlLite(p.term)}">${d>0?'↑':d<0?'↓':'→'}${Math.abs(d)} since ${escapeHtmlLite(p.term)}</div>`;
+        const lq = r.lexile ? `Lexile ${escapeHtmlLite(r.lexile)} <span style="font-size:11px;color:var(--text3)">(${escapeHtmlLite(r.lexileMin)}–${escapeHtmlLite(r.lexileMax)})</span>`
+                 : r.quantile ? `Quantile ${escapeHtmlLite(r.quantile)} <span style="font-size:11px;color:var(--text3)">(${escapeHtmlLite(r.quantileMin)}–${escapeHtmlLite(r.quantileMax)})</span>` : '—';
+        const rg = +r.rapidGuessing||0;
+        const goals = (r.goals||[]).map(g=>`<span style="display:inline-flex;gap:5px;align-items:center;margin:2px 14px 2px 0">${escapeHtmlLite(g.name)} <b>${escapeHtmlLite(g.rit||'—')}</b><span style="color:var(--text3)">${escapeHtmlLite(g.range||'')}</span>${nweaLevelChip(g.level)}</span>`).join('');
+        return `<tr><td style="padding:8px;font-weight:700;vertical-align:top">${escapeHtmlLite(r.subject)}${r.screening?'<div style="font-size:10px;color:var(--text3);font-weight:400">Screening test</div>':''}</td>
+          <td style="padding:8px;text-align:center;vertical-align:top"><b style="font-size:16px">${escapeHtmlLite(r.rit||'—')}</b>${r.se?`<div style="font-size:11px;color:var(--text3)">±${escapeHtmlLite(r.se)}</div>`:''}${arrow}</td>
+          <td style="padding:8px;text-align:center;vertical-align:top">${nweaOrd(r.pct)}</td>
+          <td style="padding:8px;text-align:center;vertical-align:top">${nweaLevelChip(r.level)||'—'}</td>
+          <td style="padding:8px;vertical-align:top">${lq}</td>
+          <td style="padding:8px;font-size:12px;color:var(--text2);vertical-align:top">${escapeHtmlLite(r.date||'')}${r.minutes?' · '+escapeHtmlLite(r.minutes)+' min':''}${rg>=10?` · <span style="color:#A32D2D;font-weight:700">${Math.round(rg)}% rapid guessing</span>`:''}</td></tr>
+          ${goals||r.accommodations?`<tr><td></td><td colspan="5" style="padding:0 8px 9px;font-size:12px;border-bottom:1px solid var(--border)">
+            ${goals?`<div><span style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.4px;margin-right:6px">GOAL AREAS</span>${goals}</div>`:''}
+            ${r.accommodations?`<div style="margin-top:3px;color:var(--text2)"><span style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.4px;margin-right:6px">ACCOMMODATIONS USED</span>${escapeHtmlLite(r.accommodations)}</div>`:''}
+          </td></tr>`:''}`;
+      }).join('')}</tbody></table></div>`;
+  };
+  const pill = (v,l) => `<span class="pill${sel===v?' on':''}" onclick="nweaPickTerm('${s.id}','${v}')">${escapeHtmlLite(l)}</span>`;
+  return `<div class="card"><div class="card-title"><i class="ti ti-chart-line"></i> NWEA MAP Growth</div>
+    ${terms.length>1?`<div class="filter-row" style="margin-bottom:8px">${terms.map(t=>pill(t,t)).join('')}${pill('all','All terms')}</div>`:''}
+    ${show.map(block).join('')}
+  </div>`;
+}
+
+// ── NWEA IMPORT (admin) ──────────────────────────────────────────
+// Upload the NWEA "Combined Data File" (ComboStudentAssessment.csv) for the
+// whole school. Rows are matched to DCLC students; everyone else is ignored.
+// Once matched, a student's NWEA Student ID is saved so later terms match
+// automatically, even when the portal uses a nickname.
+let nweaImport = null;
+
+function parseCsv(text){
+  const rows=[]; let row=[], f='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else if(c==='"') q=true;
+    else if(c===','){ row.push(f); f=''; }
+    else if(c==='\n'){ row.push(f); rows.push(row); row=[]; f=''; }
+    else if(c!=='\r') f+=c;
+  }
+  if(f!==''||row.length){ row.push(f); rows.push(row); }
+  const head=(rows.shift()||[]).map(h=>h.replace(/^﻿/,'').trim());
+  return rows.filter(r=>r.length>1).map(r=>{ const o={}; head.forEach((h,i)=>o[h]=(r[i]||'').trim()); return o; });
+}
+
+function showNweaImport(){
+  if(isPrincipal) return;
+  currentId=null; renderList(); nweaImport=null;
+  document.getElementById('mainContent').innerHTML=`
+    <div style="margin-bottom:14px"><div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:3px">Import NWEA scores</div>
+      <div style="font-size:13px;color:var(--text2)">Upload the whole-school NWEA Combined Data File (ComboStudentAssessment.csv). Only DCLC students are kept; you review the matches before anything is saved.</div></div>
+    <div class="card"><input type="file" id="nweaFile" accept=".csv,text/csv" onchange="readNweaFile(this)">
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">If NWEA gives you a .zip, open it first and choose the .csv inside.</div></div>
+    <div id="nweaReview"></div>`;
+}
+
+function readNweaFile(input){
+  const file=input.files&&input.files[0]; if(!file) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{ buildNweaReview(parseCsv(String(rd.result))); }catch(e){ document.getElementById('nweaReview').innerHTML=`<div class="alert al-red">Could not read that file: ${escapeHtmlLite(e.message)}</div>`; } };
+  rd.readAsText(file);
+}
+
+function nweaTermName(t){ const m=/(Fall|Winter|Spring)\s+(\d{4})(?:-(\d{4}))?/i.exec(t||''); if(!m) return t||'';
+  const season=m[1][0].toUpperCase()+m[1].slice(1).toLowerCase();
+  const yr = season==='Fall' ? m[2] : (m[3]||m[2]);
+  return season+' '+yr; }
+
+function nweaRowToResult(x){
+  const goals=[]; for(let n=1;n<=8;n++){ if(x['Goal'+n+'Name']) goals.push({ name:x['Goal'+n+'Name'], rit:x['Goal'+n+'RitScore'], range:x['Goal'+n+'Range'], level:x['Goal'+n+'Adjective'] }); }
+  const acc=[...new Set((x.Accommodations||'').split(';').map(a=>a.trim()).filter(Boolean))].join('; ');
+  return { term:nweaTermName(x.TermName), course:x.Course, subject:NWEA_SUBJECT[x.Course]||x.Course, testName:x.TestName,
+    screening:/^screening/i.test(x.TestName||''), date:x.TestStartDate, minutes:x.TestDurationMinutes, rit:x.TestRITScore, se:x.TestStandardError,
+    pct:x.TestPercentile, level:x.AchievementQuintile, lexile:x.LexileScore, lexileMin:x.LexileMin, lexileMax:x.LexileMax,
+    quantile:x.QuantileScore, quantileMin:x.QuantileMin, quantileMax:x.QuantileMax,
+    rapidGuessing: x.RapidGuessingPercentage ? String(Math.round(+x.RapidGuessingPercentage*10)/10) : '', accommodations:acc, goals };
+}
+
+function buildNweaReview(rows){
+  const box=document.getElementById('nweaReview');
+  if(!rows.length || !('StudentID' in rows[0]) || !('TestRITScore' in rows[0])){
+    box.innerHTML='<div class="alert al-red">This doesn\'t look like the NWEA Combined Data File (no StudentID / TestRITScore columns).</div>'; return;
+  }
+  const norm=v=>String(v||'').toLowerCase().replace(/[^a-z]/g,'');
+  const kids={};
+  rows.forEach(x=>{ const k=x.StudentID; if(!k) return; (kids[k]=kids[k]||{id:k,first:x.StudentFirstName,last:x.StudentLastName,grade:x.Grade,rows:[]}).rows.push(x); });
+  const list=Object.values(kids);
+  const used={}, matches=[], missing=[];
+  activeStudents().forEach(s=>{
+    const parts=s.name.trim().split(/\s+/), fn=norm(parts[0]), ln=norm(parts[parts.length-1]), full=norm(s.name);
+    let c=[], how='';
+    if(s.nweaId && kids[s.nweaId]){ c=[kids[s.nweaId]]; how='id'; }
+    if(!c.length){ c=list.filter(k=>norm(k.first+k.last)===full || (norm(k.first)===fn && norm(k.last)===ln)); how='name'; }
+    if(!c.length){ c=list.filter(k=>norm(k.last)===ln && String(k.grade)===String(s.grade) && (norm(k.first).slice(0,3)===fn.slice(0,3))); how='nick'; }
+    if(!c.length){ c=list.filter(k=>norm(k.last)===ln && String(k.grade)===String(s.grade)); how='check'; }
+    if(c.length===1 && !used[c[0].id]){ used[c[0].id]=true; matches.push({s,k:c[0],how}); }
+    else missing.push({s,why:c.length>1?'More than one possible match':'Not in this file'});
+  });
+  const term=nweaTermName(rows[0].TermName);
+  nweaImport={ term, matches };
+  const badge=h=>({id:'<span class="badge" style="background:#E1F5EE;color:#0F6E56">Saved ID</span>',name:'<span class="badge" style="background:#E1F5EE;color:#0F6E56">Name</span>',
+    nick:'<span class="badge" style="background:#FAEEDA;color:#854F0B">Nickname</span>',check:'<span class="badge" style="background:#FCEBEB;color:#A32D2D">Check</span>'}[h]);
+  box.innerHTML=`
+    <div class="card"><div class="card-title"><i class="ti ti-list-check"></i> ${escapeHtmlLite(term)} — ${matches.length} DCLC students found in the file</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${rows.length} test results for ${list.length} students in the file. Uncheck anyone who isn't the same student. Re-importing the same term replaces that term's scores; other terms are kept.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="text-align:left;color:var(--text3);font-size:11px"><th style="padding:5px"></th><th style="padding:5px">Portal student</th><th style="padding:5px">Name in NWEA file</th><th style="padding:5px">Match</th><th style="padding:5px">Subjects</th></tr>
+        ${matches.map((m,i)=>`<tr style="border-top:1px solid var(--border)"><td style="padding:5px"><input type="checkbox" id="nwm_${i}" checked></td>
+          <td style="padding:5px"><b>${escapeHtmlLite(m.s.name)}</b> <span style="color:var(--text3)">Gr ${escapeHtmlLite(m.s.grade)}</span></td>
+          <td style="padding:5px">${escapeHtmlLite(m.k.first+' '+m.k.last)} <span style="color:var(--text3)">Gr ${escapeHtmlLite(m.k.grade)}</span></td>
+          <td style="padding:5px">${badge(m.how)}</td>
+          <td style="padding:5px;font-size:12px">${m.k.rows.map(x=>escapeHtmlLite((NWEA_SUBJECT[x.Course]||x.Course)+' '+x.TestRITScore)).join(' · ')}</td></tr>`).join('')}
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="saveNweaImport()"><i class="ti ti-device-floppy"></i> Save scores</button><span id="nweaSaveMsg" style="font-size:12px;color:var(--text3)"></span></div>
+    </div>
+    ${missing.length?`<div class="card"><div class="card-title"><i class="ti ti-user-question"></i> Active DCLC students with no scores in this file (${missing.length})</div>
+      ${missing.map(m=>`<div style="font-size:13px;padding:3px 0">${escapeHtmlLite(m.s.name)} <span style="color:var(--text3)">· Gr ${escapeHtmlLite(m.s.grade)} · ${m.why}</span></div>`).join('')}</div>`:''}`;
+}
+
+async function saveNweaImport(){
+  if(!nweaImport) return;
+  const msg=document.getElementById('nweaSaveMsg');
+  const updates=[];
+  nweaImport.matches.forEach((m,i)=>{
+    if(!document.getElementById('nwm_'+i)?.checked) return;
+    updates.push({ id:m.s.id, nweaId:m.k.id, term:nweaImport.term, results:m.k.rows.map(nweaRowToResult) });
+  });
+  if(!updates.length){ msg.textContent='Nothing selected.'; return; }
+  msg.textContent='Saving '+updates.length+' students…';
+  try{
+    const r=await drivePost({ action:'saveNwea', updates });
+    if(!r || !r.ok){ msg.textContent=(r&&r.error)||'Could not save.'; return; }
+    // mirror the server's merge locally
+    updates.forEach(u=>{ const s=students.find(x=>x.id===u.id); if(!s) return; applyNweaUpdate(s,u); });
+    saveLocal();
+    msg.innerHTML='<span style="color:#0F6E56;font-weight:700">Saved scores for '+r.updated+' students.</span>';
+  }catch(e){ msg.textContent='Could not save: '+e.message; }
+}
+
+function applyNweaUpdate(s,u){
+  s.nweaId=u.nweaId;
+  s.nweaResults=(s.nweaResults||[]).filter(r=>r.term!==u.term).concat(u.results);
+  const latest=nweaTerms(s)[0];
+  const cur=(s.nweaResults||[]).filter(r=>r.term===latest);
+  const pick=subs=>{ const r=cur.find(x=>subs.includes(x.subject)); return r?r.rit:''; };
+  s.nweaTerm=latest; s.nweaReading=pick(['Reading']); s.nweaLanguage=pick(['Language Usage']);
+  s.nweaMath=pick(['Math','Algebra 1','Geometry','Algebra 2']); s.nweaScience=pick(['Science','Life Sciences']);
+}
+
 // ── PROGRESS MONITORING ───────────────────────────────────────
 function renderProgress(s){
   const pm=s.progressMonitoring||{entries:[],nwea:[],mapFluency:[]};
@@ -1257,10 +1466,10 @@ function renderProgress(s){
   const noGrowth=lastTwo.length===2&&lastTwo[1].overallRating==='No progress'||lastTwo[1]?.overallRating==='Regression';
   const flagHtml=noGrowth?`<div class="alert al-red" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> <strong>Growth concern flagged</strong> — last two entries show no progress or regression. Review at next Learning Plan meeting.</div>`:'';
 
-  // NWEA trend
+  // NWEA trend (scores typed in by hand with "Add NWEA")
   const nweaHtml=nwea.length?`
     <div class="card">
-      <div class="card-title"><i class="ti ti-chart-line"></i> NWEA MAP Growth — RIT score history</div>
+      <div class="card-title"><i class="ti ti-chart-line"></i> NWEA MAP — entered by hand</div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="background:var(--bg2)">
@@ -1341,6 +1550,7 @@ function renderProgress(s){
         <button class="btn btn-green btn-sm" onclick="printProgressReport('${s.id}')"><i class="ti ti-printer"></i> Print report</button>
       </div>
     </div>
+    ${nweaResultsHtml(s)}
     ${nweaHtml}
     ${fluencyHtml}
     ${entriesHtml}`;
