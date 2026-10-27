@@ -79,7 +79,7 @@ body{font-family:Arial,sans-serif;background:var(--bg3);color:var(--text);font-s
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .field label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;font-weight:700;display:block;margin-bottom:2px}
 .field-val{font-size:13px}
-.field-val.empty{color:var(--text3);font-style:italic}
+.field-val.empty{color:var(--text3);font-style:italic;display:block;height:auto}
 /* alerts */
 .alert{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius);font-size:13px;margin-bottom:10px}
 .al-red{background:#FCEBEB;border:1px solid #F0959580;color:#A32D2D}
@@ -204,6 +204,30 @@ body.principal-mode [onchange*="toggleTestComplete"]{ pointer-events:none !impor
 body.principal-mode [onchange*="toggleAttendance"],
 body.principal-mode [onchange*="toggleAccommUsed"]{ pointer-events:none !important; opacity:.5 }
 body.principal-mode #elemPortalBtn{ display:none !important }
+/* Interventionist: sees everything; adds progress, documentation, sessions, notes, uploads. No student-info edits, calendar, imports, access. */
+body.interv-mode [onclick^="showStudentForm"], body.interv-mode [onclick^="deleteStudent"], body.interv-mode [onclick^="setStudentActive"],
+body.interv-mode [onclick^="showRosterImport"], body.interv-mode [onclick^="showScheduleImport"], body.interv-mode [onclick^="showNweaImport"],
+body.interv-mode [onclick^="approveEvent"], body.interv-mode [onclick^="discardEvent"], body.interv-mode [onclick^="approveAll"],
+body.interv-mode [onclick^="clearAllApproved"], body.interv-mode [onclick^="clearPastEvents"], body.interv-mode [onclick^="showAddEventForm"],
+body.interv-mode [onclick^="addEventManually"], body.interv-mode [onclick^="editCalEvent"], body.interv-mode [onclick^="deleteCalEvent"],
+body.interv-mode [onclick^="markNotInLC"], body.interv-mode [onclick^="markPaperOnly"], body.interv-mode [onclick^="restoreInLC"],
+body.interv-mode [onclick^="duplicateCalEventToDate"], body.interv-mode [onclick^="recomputeAllMatches"], body.interv-mode [onclick^="resolveCalChange"],
+body.interv-mode [onclick^="loadCalendarEvents"], body.interv-mode [onclick^="findFIEDocs"], body.interv-mode [onclick^="hubToggle"],
+body.interv-mode [onclick^="hubBuild"], body.interv-mode [onclick^="toggleSwEnrollment"], body.interv-mode [onclick^="openAccess"],
+body.interv-mode [onclick^="openLoginReport"], body.interv-mode [onclick^="applySchedule"], body.interv-mode [onclick^="importRoster"],
+body.interv-mode [id^="fieDocsList_"] button, body.interv-mode #elemPortalBtn
+{ display:none !important; }
+body.interv-mode [onchange*="toggleTestComplete"], body.interv-mode [onchange*="toggleAttendance"], body.interv-mode [onchange*="toggleAccommUsed"]{ pointer-events:none !important; opacity:.5 }
+/* Leadership (view only) also never sees admin-only pages */
+body.principal-mode [onclick^="openAccess"], body.principal-mode [onclick^="openLoginReport"], body.principal-mode [onclick^="showSessionForm"],
+body.principal-mode [onclick^="voidSession"], body.principal-mode [onclick^="showUploadForm"], body.principal-mode [onclick^="loadCalendarEvents"],
+body.principal-mode [onclick^="setStudentActive"], body.principal-mode [onclick^="recomputeAllMatches"], body.principal-mode [onclick^="hubToggle"]
+{ display:none !important; }
+/* Teacher: own students only, read-only, no internal sections */
+body.teacher-mode .adm-only, body.teacher-mode .header-actions .btn:not(.keep-teacher), body.teacher-mode .filter-row .pill[onclick*="'inactive'"]
+{ display:none !important; }
+.user-pill{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;background:var(--bg2);border:1px solid var(--border2);color:var(--text2)}
+.user-pill b{color:var(--navy)}
 body.principal-mode textarea[onblur*="saveStudentNotes"]{ pointer-events:none !important; background:var(--bg2) !important; cursor:default }
 body.principal-mode input#docKeyword_field,
 body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity:.5 }
@@ -214,11 +238,12 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
     <div style="width:64px;height:64px;background:#2E4057;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
       <svg width="32" height="32" fill="none" viewBox="0 0 24 24"><path d="M12 2C9.24 2 7 4.24 7 7s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 12c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z" fill="#fff"/></svg>
     </div>
-    <div style="font-size:20px;font-weight:700;color:#2E4057;margin-bottom:6px">DCLC Admin Portal</div>
-    <div style="font-size:13px;color:#888;margin-bottom:24px">Dallas Christian Learning Center</div>
-    <input type="password" id="loginCode" placeholder="Enter access code" style="width:100%;padding:10px 14px;border:1px solid #ccc;border-radius:8px;font-size:14px;font-family:Arial;margin-bottom:12px;text-align:center" onkeydown="if(event.key==='Enter')checkLogin()">
-    <div id="loginError" style="display:none;color:#A32D2D;font-size:13px;margin-bottom:10px">Incorrect access code</div>
-    <button onclick="checkLogin()" style="width:100%;padding:10px;background:#2E4057;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:Arial">Sign in</button>
+    <div style="font-size:20px;font-weight:700;color:#2E4057;margin-bottom:6px">DCLC Learning Support — MS/HS</div>
+    <div style="font-size:13px;color:#888;margin-bottom:24px">Sign in with your access code</div>
+    <input type="password" id="loginCode" autocomplete="current-password" placeholder="Access code" style="width:100%;padding:10px 14px;border:1px solid #ccc;border-radius:8px;font-size:14px;font-family:Arial;margin-bottom:12px;text-align:center" onkeydown="if(event.key==='Enter')checkLogin()">
+    <div id="loginError" style="display:none;color:#A32D2D;font-size:13px;margin-bottom:10px">That code did not work.</div>
+    <button id="loginBtn" onclick="checkLogin()" style="width:100%;padding:10px;background:#2E4057;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:Arial">Sign in</button>
+    <div style="font-size:12px;color:#888;margin-top:14px">Teachers: use the same code you've been using. Your role decides what you see.</div>
   </div>
 </div>
 <div class="portal-wrap">
@@ -230,7 +255,8 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
     <div class="header-actions">
       <span id="syncPill" class="sync-pill sync-ok" onclick="syncAll()" title="Click to sync with Google Drive"><i class="ti ti-refresh"></i> <span id="syncTxt">Sync Drive</span></span>
       <div id="principalBadge" style="display:none;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;background:#EEEDFE;color:#534AB7;border:1px solid #A89EF580"><i class="ti ti-shield"></i> Administrator view</div>
-      <button class="btn" onclick="showPrincipalLogin()" id="principalLoginBtn" title="Administrator login"><i class="ti ti-shield"></i></button>
+      <span class="user-pill" id="userPill" style="display:none"></span>
+      <button class="btn keep-teacher" onclick="signOut()" title="Sign out"><i class="ti ti-logout"></i> Sign out</button>
       <a class="btn" id="elemPortalBtn" href="https://dclc-portal.github.io/dclc-elementary/" target="_blank" rel="noopener" style="text-decoration:none;background:#E1F5EE;color:#0F6E56;border-color:#0F6E5640" title="Open the Elementary Portal in a new tab"><i class="ti ti-school"></i> Elementary portal</a>
       <button class="btn" onclick="openStats()"><i class="ti ti-chart-bar"></i> Overview</button>
       <button class="btn" onclick="openCalendar()"><i class="ti ti-calendar"></i> Testing calendar</button>
@@ -240,6 +266,7 @@ body.principal-mode [id^="docKeyword_"]{ pointer-events:none !important; opacity
       <button class="btn" onclick="showScheduleImport()"><i class="ti ti-calendar-event"></i> Import schedules</button>
       <button class="btn" onclick="showNweaImport()"><i class="ti ti-chart-line"></i> Import NWEA</button>
       <button class="btn" onclick="openLoginReport()"><i class="ti ti-login"></i> Login report</button>
+      <button class="btn" onclick="openAccess()" id="accessBtn" style="display:none"><i class="ti ti-users"></i> Access &amp; roles</button>
       <button class="btn btn-primary" onclick="showStudentForm()"><i class="ti ti-plus"></i> Add student</button>
     </div>
   </div>
@@ -641,62 +668,78 @@ async function openLoginReport(){
   }
 }
 
-// ── PRINCIPAL ACCESS ──────────────────────────────────────────
-const PRINCIPAL_CODES = {
-  'principal2627': 'Principal',
-  'admin2627': 'Administrator',
-};
-let isPrincipal = false;
+// ── SIGN-IN, SESSIONS & ROLES ────────────────────────────────────
+// Everyone signs in with their own code (checked on the server, see Access.gs).
+// Roles: admin · interventionist · leadership (view only) · teacher (own students).
+const PORTAL_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzDpZTBF2M3oU-fbTylNo1UQ5OzREcsTN4lLBeSZWHusIr-W24vcq2gl2sqQ5_9gvQang/exec';
+let isPrincipal = false;          // true = view only (leadership and teachers)
+let currentUser = null;           // { id, name, role, roleLabel, ... }
+let sessionToken = '';
+const isAdmin = () => !!currentUser && currentUser.role==='admin';
+const isInterventionist = () => !!currentUser && currentUser.role==='interventionist';
+const isTeacherRole = () => !!currentUser && (currentUser.role==='teacher' || currentUser.role==='counselor');   // limited, read-only views
+const canDocument = () => isAdmin() || isInterventionist();
 
-function checkPrincipalAccess(){
-  const stored = localStorage.getItem('dclc_principal_auth');
-  if(stored && PRINCIPAL_CODES[stored]){
-    isPrincipal = true;
-    applyPrincipalMode();
-  }
+function loadSession(){
+  try{ const raw=sessionStorage.getItem('dclc_session'); if(!raw) return false;
+    const o=JSON.parse(raw); if(!o||!o.token||!o.user) return false;
+    sessionToken=o.token; currentUser=o.user; return true; }catch(e){ return false; }
+}
+function saveSession(){ try{ sessionStorage.setItem('dclc_session', JSON.stringify({token:sessionToken,user:currentUser})); }catch(e){} }
+
+function applyRole(){
+  const b=document.body;
+  b.classList.remove('principal-mode','interv-mode','teacher-mode');
+  isPrincipal = !!currentUser && (currentUser.role==='leadership' || currentUser.role==='teacher' || currentUser.role==='counselor');
+  if(isPrincipal) b.classList.add('principal-mode');
+  if(isInterventionist()) b.classList.add('interv-mode');
+  if(isTeacherRole()) b.classList.add('teacher-mode');
+  const pill=document.getElementById('userPill');
+  if(pill && currentUser){ pill.style.display='flex';
+    pill.innerHTML=`<i class="ti ti-user"></i> <b>${escapeHtmlLite(currentUser.name)}</b> · ${escapeHtmlLite(currentUser.roleLabel||currentUser.role)}${isPrincipal?' · view only':''}`; }
+  const acc=document.getElementById('accessBtn'); if(acc) acc.style.display=isAdmin()?'':'none';
+  const badge=document.getElementById('principalBadge'); if(badge) badge.style.display='none';
 }
 
-function applyPrincipalMode(){
-  // Add body class — CSS rules automatically hide every write action, on every tab, present or future
-  document.body.classList.add('principal-mode');
-  // Show principal badge
-  const badge = document.getElementById('principalBadge');
-  if(badge){ badge.style.display='flex'; badge.innerHTML = '<i class="ti ti-eye"></i> View only — Administrator'; }
+function authFailed(r){
+  if(r && r.error==='auth'){ signOut(true); return true; }
+  return false;
 }
 
-function showPrincipalLogin(){
-  const code = prompt('Enter administrator access code:');
-  if(!code) return;
-  if(PRINCIPAL_CODES[code]){
-    localStorage.setItem('dclc_principal_auth', code);
-    isPrincipal = true;
-    applyPrincipalMode();
-    syncAll();
-  } else {
-    alert('Incorrect access code.');
-  }
+async function signOut(expired){
+  try{ if(sessionToken && !expired) fetch(scriptUrl||PORTAL_SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'logout',token:sessionToken})}); }catch(e){}
+  sessionToken=''; currentUser=null; students=[]; calendarEvents=[];
+  try{ sessionStorage.removeItem('dclc_session'); localStorage.removeItem('dclc_students'); }catch(e){}
+  document.body.classList.remove('principal-mode','interv-mode','teacher-mode');
+  const g=document.getElementById('loginGate'); if(g) g.style.display='flex';
+  const err=document.getElementById('loginError');
+  if(err){ err.style.display=expired?'block':'none'; err.textContent=expired?'Your sign-in expired. Please sign in again.':'That code did not work.'; }
+  const mc=document.getElementById('mainContent'); if(mc) mc.innerHTML='';
+  renderList();
 }
 
 // ── INIT ───────────────────────────────────────────────────────
 function init(){
   scriptUrl = 'https://script.google.com/macros/s/AKfycbzDpZTBF2M3oU-fbTylNo1UQ5OzREcsTN4lLBeSZWHusIr-W24vcq2gl2sqQ5_9gvQang/exec';
   students = [];
-  checkPrincipalAccess();
+  applyRole();
   renderList();
+  if(isTeacherRole()) document.getElementById('mainContent').innerHTML =
+    `<div class="card" style="text-align:center;padding:30px"><div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:6px">Welcome, ${escapeHtmlLite(currentUser.name)}</div>
+     <div style="font-size:13px;color:var(--text2)">${currentUser.role==='counselor'?'DCLC students in your grades':'Your DCLC students'} are listed on the left. Choose a student to see their accommodations, diagnosis, NWEA scores, progress and upcoming tests.</div></div>`;
   // Try sync with increasing delays
   setTimeout(function(){ syncAll(); }, 500);
   setTimeout(function(){ if(!students.length) syncAll(); }, 2000);
   setTimeout(function(){ if(!students.length) syncAll(); }, 5000);
 }
 
-function saveLocal(){
-  try{ localStorage.setItem('dclc_students', JSON.stringify(students)); }catch(e){}
-}
+// Student data is no longer copied into the browser's storage (privacy).
+function saveLocal(){ }
 
 async function pushStudent(s){
   if(isPrincipal){ console.warn('View-only mode — save blocked.'); return; }
   if(!scriptUrl) return;
-  try{ await fetch(scriptUrl, { method:'POST', body:JSON.stringify({action:'saveStudent', student:s}) }); }
+  try{ const r = await fetch(scriptUrl, { method:'POST', body:JSON.stringify({action:'saveStudent', student:s, token:sessionToken}) }).then(x=>x.json()); authFailed(r); }
   catch(e){ console.warn('Drive push failed:', e.message); }
 }
 
@@ -735,6 +778,7 @@ async function syncAll(){
       });
       saveLocal();
     }
+    try{ const ae = await driveFetch('getApprovedEvents'); if(ae && ae.ok) calendarEvents = ae.events || []; }catch(e){}
     setSyncState('ok','Synced '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}));
     renderList();
     if(currentId) selectStudent(currentId);
@@ -748,11 +792,11 @@ async function syncAll(){
 
 
 function driveFetch(action){
-  return fetch(scriptUrl+'?action='+action).then(r=>r.json());
+  return fetch(scriptUrl+'?action='+action+'&token='+encodeURIComponent(sessionToken)).then(r=>r.json()).then(r=>{ authFailed(r); return r; });
 }
 function drivePost(body){
   if(isPrincipal){ console.warn('View-only mode — write blocked.'); return Promise.resolve({ok:false,blocked:true}); }
-  return fetch(scriptUrl, { method:'POST', body:JSON.stringify(body) }).then(r=>r.json());
+  return fetch(scriptUrl, { method:'POST', body:JSON.stringify(Object.assign({}, body, {token:sessionToken})) }).then(r=>r.json()).then(r=>{ authFailed(r); return r; });
 }
 function setSyncState(state,txt){
   const p=document.getElementById('syncPill');
@@ -832,7 +876,7 @@ function selectStudent(id){
   const s=students.find(x=>x.id===id); if(!s)return;
   const c=av(students.indexOf(s));
   const due=fieStatus(s.fieDue);
-  const dueAlert=due==='overdue'
+  const dueAlert=isTeacherRole()?'':due==='overdue'
     ?`<div class="alert al-red"><i class="ti ti-alert-circle"></i> FIE overdue — was due ${s.fieDue}</div>`
     :due==='soon'
     ?`<div class="alert al-amber"><i class="ti ti-clock"></i> FIE due within 90 days — ${s.fieDue}</div>`
@@ -915,7 +959,8 @@ function renderOverview(s,dueAlert){
       </div>
     </div>`;
   })()}
-  <div class="card">
+  ${upcomingTestsCard(s)}
+  <div class="card adm-only">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span><i class="ti ti-file-description"></i> FIE Documents</span>
       <button class="btn btn-sm" onclick="findFIEDocs('${s.id}','${s.name.replace(/'/g,"\\'")}')"><i class="ti ti-search"></i> Find in Drive</button>
@@ -924,8 +969,9 @@ function renderOverview(s,dueAlert){
       ${docListHtml(s,'fie')}
     </div>
   </div>
-  <div class="card">
-    <div class="card-title"><i class="ti ti-file-plus"></i> Additional Documentation</div>
+  <div class="card adm-only">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span><i class="ti ti-file-plus"></i> Additional Documentation</span>
+      <button class="btn btn-sm btn-primary" onclick="showUploadForm('${s.id}')"><i class="ti ti-upload"></i> Upload file</button></div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:8px">For students with other evaluation types (psych eval, 504 plan, private testing, etc.) instead of or in addition to an FIE.</div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <input type="text" id="docKeyword_${s.id}" placeholder="e.g. Psych Eval, 504 Plan, Private Testing" style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:Arial" onkeydown="if(event.key==='Enter')findOtherDocs('${s.id}','${s.name.replace(/'/g,"\\'")}')">
@@ -935,14 +981,14 @@ function renderOverview(s,dueAlert){
       ${docListHtml(s,'other')}
     </div>
   </div>
-  <div class="card">
+  <div class="card adm-only">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span><i class="ti ti-notes"></i> Notes</span>
       <span id="notesSaved_${s.id}" style="font-size:11px;color:#3B6D11;display:none">Saved</span>
     </div>
     <textarea id="notesField_${s.id}" placeholder="General notes about this student..." style="width:100%;min-height:70px;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:Arial,sans-serif;resize:vertical" onblur="saveStudentNotes('${s.id}')">${s.notes||''}</textarea>
   </div>
-  <div class="card">
+  <div class="card adm-only">
     <div class="card-title"><i class="ti ti-file-certificate"></i> Program details</div>
     <div class="field-grid">
       <div class="field"><label>Service tier</label><div class="field-val">${s.tier||'—'}</div></div>
@@ -1243,6 +1289,282 @@ function renderGrades(s){
     </div>
     ${bars}
   </div>`;
+}
+
+// ── UPCOMING TESTS (student overview) ──────────────────────────────
+function upcomingTestsCard(s){
+  const today=new Date().toISOString().slice(0,10);
+  const list=(calendarEvents||[]).filter(e=>e.date>=today && !e.notInLC && (e.studentIds||[]).includes(s.id)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,8);
+  if(!list.length) return '';
+  return `<div class="card"><div class="card-title"><i class="ti ti-calendar-event"></i> Upcoming tests</div>
+    ${list.map(e=>`<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-top:1px solid var(--border);font-size:13px">
+      <b style="min-width:92px">${new Date(e.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</b>
+      <span style="flex:1">${escapeHtmlLite(e.class||'')}${e.title&&e.title!==e.class?' · <span style="color:var(--text2)">📝 '+escapeHtmlLite(e.title)+'</span>':''}</span>
+      <span style="color:var(--text3);font-size:12px">${escapeHtmlLite(e.teacher||'')}${e.period?' · P'+escapeHtmlLite(String(e.period).replace(/,/g,', P')):''}</span></div>`).join('')}</div>`;
+}
+
+// ── SESSION LOG (one-on-one / small-group time) ───────────────────
+const SESSION_KINDS=['One-on-one','Small group','Check-in','Testing support','Other'];
+function sessionsCard(s){
+  const list=(s.sessionLog||[]).filter(x=>!x.voided).sort((a,b)=>b.date.localeCompare(a.date));
+  const ym=new Date().toISOString().slice(0,7);
+  const month=list.filter(x=>x.date.slice(0,7)===ym).reduce((a,x)=>a+(+x.minutes||0),0);
+  const total=list.reduce((a,x)=>a+(+x.minutes||0),0);
+  return `<div class="card adm-only"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span><i class="ti ti-clock-hour-4"></i> Sessions with DCLC staff</span>
+      <button class="btn btn-sm btn-primary" onclick="showSessionForm('${s.id}')"><i class="ti ti-plus"></i> Log session</button></div>
+    <div style="display:flex;gap:16px;font-size:12px;color:var(--text2);margin-bottom:8px"><span><b style="color:var(--navy);font-size:15px">${list.length}</b> sessions</span>
+      <span><b style="color:var(--navy);font-size:15px">${month}</b> min this month</span><span><b style="color:var(--navy);font-size:15px">${total}</b> min total</span></div>
+    ${list.length?list.slice(0,12).map(x=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--border);font-size:13px">
+      <b style="min-width:80px">${escapeHtmlLite(x.date)}</b>
+      <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:var(--bg2);font-weight:700;white-space:nowrap">${escapeHtmlLite(x.kind)}</span>
+      <span style="white-space:nowrap">${escapeHtmlLite(String(x.minutes||''))} min</span>
+      <span style="flex:1">${x.focus?'<b>'+escapeHtmlLite(x.focus)+'</b> ':''}${escapeHtmlLite(x.notes||'')}<div style="font-size:11px;color:var(--text3)">${escapeHtmlLite(x.by||'')}</div></span>
+      ${(isAdmin()||(currentUser&&x.by===currentUser.name))?`<button onclick="voidSession('${s.id}','${x.id}')" title="Void this entry (kept on record, not counted)" style="border:none;background:none;color:#bbb;cursor:pointer;font-size:12px">Void</button>`:''}
+    </div>`).join(''):'<div style="color:var(--text3);font-size:13px">No sessions logged yet.</div>'}
+    ${list.length>12?`<div style="font-size:12px;color:var(--text3);margin-top:6px">+ ${list.length-12} earlier sessions</div>`:''}
+  </div>`;
+}
+function showSessionForm(sid){
+  if(!canDocument()) return;
+  const s=students.find(x=>x.id===sid); if(!s) return;
+  document.getElementById('formTitle').textContent='Log session — '+s.name;
+  document.getElementById('formBody').innerHTML=`<div class="form-grid">
+    <div class="ff"><label>Date *</label><input type="date" id="ss_date" value="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="ff"><label>Minutes *</label><input type="number" min="1" id="ss_min" placeholder="e.g. 30"></div>
+    <div class="ff"><label>Type</label><select id="ss_kind">${SESSION_KINDS.map(k=>`<option>${k}</option>`).join('')}</select></div>
+    <div class="ff"><label>Focus</label><input id="ss_focus" placeholder="e.g. Essay planning, test retake, organization"></div>
+    <div class="ff full"><label>Notes</label><textarea id="ss_notes" placeholder="What you worked on and how it went"></textarea></div>
+    <div class="ff full"><label style="font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="ss_doc" style="width:auto"> Also add to the Meeting &amp; Documentation Log</label></div>
+    <div class="ff full"><label style="font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="ss_pm" style="width:auto" onchange="document.getElementById('ss_pmBox').style.display=this.checked?'grid':'none'"> Also add a progress monitoring entry</label></div>
+    <div id="ss_pmBox" class="ff full" style="display:none;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="ff"><label>Progress rating</label><select id="ss_rating"><option>Progressing</option><option>Mastered</option><option>No progress</option><option>Regression</option></select></div>
+      <div class="ff"><label>Next steps</label><input id="ss_next" placeholder="Optional"></div></div>
+  </div>`;
+  document.getElementById('formActions').innerHTML=`<button class="btn" onclick="closeForm()">Cancel</button><button class="btn btn-primary" onclick="saveSession('${sid}')">Save session</button>`;
+  document.getElementById('formOv').style.display='flex';
+}
+function saveSession(sid){
+  const s=students.find(x=>x.id===sid); if(!s) return;
+  const date=document.getElementById('ss_date').value, minutes=parseInt(document.getElementById('ss_min').value,10);
+  if(!date||!minutes){ alert('Date and minutes are required.'); return; }
+  const kind=document.getElementById('ss_kind').value, focus=document.getElementById('ss_focus').value.trim(), notes=document.getElementById('ss_notes').value.trim();
+  const by=currentUser?currentUser.name:'';
+  s.sessionLog=(s.sessionLog||[]).concat([{ id:'ss'+Date.now()+Math.random().toString(36).slice(2,6), date, minutes, kind, focus, notes, by, createdAt:new Date().toISOString() }]);
+  if(document.getElementById('ss_doc').checked){
+    s.meetingLog=(s.meetingLog||[]).concat([{ id:'m'+Date.now()+Math.random().toString(36).slice(2), type:'Session — '+kind, date, attendees:by,
+      notes:[focus,notes,minutes+' minutes'].filter(Boolean).join(' · '), followUp:'', by }]);
+    s.meetingLog.sort((a,b)=>a.date.localeCompare(b.date));
+  }
+  if(document.getElementById('ss_pm').checked){
+    if(!s.progressMonitoring) s.progressMonitoring={entries:[],nwea:[],mapFluency:[]};
+    s.progressMonitoring.entries=(s.progressMonitoring.entries||[]).concat([{ date, type:'Session — '+kind, overallRating:document.getElementById('ss_rating').value,
+      recordedBy:by, score:'', scoreLabel:'', observation:[focus,notes].filter(Boolean).join(' — ')||(kind+' session'), nextSteps:document.getElementById('ss_next').value }]);
+    s.progressMonitoring.entries.sort((a,b)=>a.date.localeCompare(b.date));
+  }
+  pushStudent(s); closeForm(); selectStudent(sid);
+  setTimeout(()=>{ try{ document.querySelector("[onclick*=\"showTab('documentation'\"]").click(); }catch(e){} },80);
+}
+function voidSession(sid,id){
+  const s=students.find(x=>x.id===sid); if(!s) return;
+  if(!confirm('Void this session? It stays on record but is no longer counted.')) return;
+  (s.sessionLog||[]).forEach(x=>{ if(x.id===id){ x.voided=true; x.voidedBy=currentUser?currentUser.name:''; x.voidedAt=new Date().toISOString(); } });
+  pushStudent(s); selectStudent(sid);
+  setTimeout(()=>{ try{ document.querySelector("[onclick*=\"showTab('documentation'\"]").click(); }catch(e){} },80);
+}
+
+// ── UPLOAD TO THE STUDENT'S DRIVE FOLDER ─────────────────────────
+// Saves into Learning Center › {grade}th › {Student Name} and links it under Additional Documentation.
+const UPLOAD_LABELS=['Outside evaluation','Psych eval','504 plan','Academic services plan','Doctor\'s note','Parent document','Work sample','Other'];
+function showUploadForm(sid){
+  if(!canDocument()) return;
+  const s=students.find(x=>x.id===sid); if(!s) return;
+  document.getElementById('formTitle').textContent='Upload file — '+s.name;
+  document.getElementById('formBody').innerHTML=`<div class="form-grid">
+    <div class="ff full"><label>File * (PDF, Word, image — up to 20 MB)</label><input type="file" id="up_file"></div>
+    <div class="ff full"><label>Label</label><select id="up_label">${UPLOAD_LABELS.map(l=>`<option>${l}</option>`).join('')}</select></div>
+    <div class="ff full" style="font-size:12px;color:var(--text3)">Saved to Learning Center › ${escapeHtmlLite(String(parseInt(s.grade,10)))}th › ${escapeHtmlLite(s.name)} in Drive, then linked here.</div>
+    <div class="ff full" id="up_msg" style="font-size:12px"></div></div>`;
+  document.getElementById('formActions').innerHTML=`<button class="btn" onclick="closeForm()">Cancel</button><button class="btn btn-primary" id="up_btn" onclick="doUpload('${sid}')">Upload</button>`;
+  document.getElementById('formOv').style.display='flex';
+}
+function doUpload(sid){
+  const f=document.getElementById('up_file').files[0], msg=document.getElementById('up_msg'), btn=document.getElementById('up_btn');
+  if(!f){ msg.textContent='Choose a file first.'; return; }
+  if(f.size>20*1024*1024){ msg.textContent='That file is over 20 MB.'; return; }
+  btn.disabled=true; msg.textContent='Uploading…';
+  const rd=new FileReader();
+  rd.onload=async()=>{
+    try{
+      const data=String(rd.result).split(',')[1];
+      const r=await drivePost({ action:'uploadDoc', studentId:sid, fileName:f.name, mimeType:f.type||'application/octet-stream', data, label:document.getElementById('up_label').value });
+      if(!r||!r.ok){ msg.textContent=(r&&(r.message||r.error))||'Upload failed.'; btn.disabled=false; return; }
+      const s=students.find(x=>x.id===sid); if(s) s.otherDocs=r.otherDocs;
+      closeForm(); selectStudent(sid);
+    }catch(e){ msg.textContent='Upload failed: '+e.message; btn.disabled=false; }
+  };
+  rd.readAsDataURL(f);
+}
+
+// ── ACCESS & ROLES (DCLC admin) ───────────────────────────────────
+const ROLE_INFO={ admin:{label:'DCLC Admin',bg:'#2E4057',fg:'#fff'}, interventionist:{label:'Interventionist',bg:'#E1F5EE',fg:'#0F6E56'},
+  leadership:{label:'School Leadership · view only',bg:'#EEEDFE',fg:'#534AB7'}, counselor:{label:'Counselor · view only',bg:'#FAEEDA',fg:'#854F0B'},
+  teacher:{label:'Teacher',bg:'#F1EFE8',fg:'#555'} };
+let accessUsers=[];
+async function openAccess(){
+  if(!isAdmin()) return;
+  currentId=null; renderList();
+  const mc=document.getElementById('mainContent');
+  mc.innerHTML='<div style="color:var(--text3);font-size:13px">Loading…</div>';
+  const r=await driveFetch('listUsers');
+  if(!r||!r.ok){ mc.innerHTML='<div class="alert al-red">'+escapeHtmlLite((r&&(r.message||r.error))||'Could not load people.')+'</div>'; return; }
+  accessUsers=r.users||[];
+  renderAccess();
+}
+function renderAccess(){
+  const mc=document.getElementById('mainContent');
+  const q=(document.getElementById('acc_q')||{}).value||'', rf=(document.getElementById('acc_role')||{}).value||'';
+  const rows=accessUsers.filter(u=>(!rf||u.role===rf)&&u.name.toLowerCase().includes(q.toLowerCase()));
+  const chip=u=>{ const i=ROLE_INFO[u.role]||ROLE_INFO.teacher; return `<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:12px;background:${i.bg};color:${i.fg}">${i.label}</span>`; };
+  const when=t=>t?new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):'—';
+  const perm=(t,a,i,l,co,te)=>`<tr><td style="padding:6px">${t}</td>${[a,i,l,co,te].map(v=>`<td style="padding:6px;text-align:center;${v==='—'?'color:#bbb':'color:#0F6E56;font-weight:700'}">${v}</td>`).join('')}</tr>`;
+  mc.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+      <div><div style="font-size:17px;font-weight:700;color:var(--navy)">Access &amp; roles</div><div style="font-size:13px;color:var(--text2)">Everyone signs in with their own code. Codes are stored scrambled and can't be looked up — reset one to give a new code.</div></div>
+      <button class="btn btn-primary" onclick="showUserForm()"><i class="ti ti-user-plus"></i> Add person</button></div>
+    <div class="card"><div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <input id="acc_q" placeholder="Search name…" value="${escapeHtmlLite(q)}" oninput="renderAccess()" style="flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-family:Arial">
+      <select id="acc_role" onchange="renderAccess()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-family:Arial"><option value="">All roles</option>${Object.keys(ROLE_INFO).map(k=>`<option value="${k}"${rf===k?' selected':''}>${ROLE_INFO[k].label}</option>`).join('')}</select></div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="color:var(--text3);font-size:11px;text-align:left"><th style="padding:6px">Name</th><th style="padding:6px">Role</th><th style="padding:6px">Status</th><th style="padding:6px">Last sign-in</th><th></th></tr>
+      ${rows.map(u=>`<tr style="border-top:1px solid var(--border);${u.active?'':'opacity:.55'}"><td style="padding:7px 6px"><b>${escapeHtmlLite(u.name)}</b>${u.title?` <span style="color:var(--text3);font-size:12px">${escapeHtmlLite(u.title)}</span>`:''}
+          ${u.seeTeacher?`<div style="font-size:11px;color:var(--text3)">Also sees ${escapeHtmlLite(u.seeTeacher)}'s students</div>`:''}${(u.seeGrades||[]).length?`<div style="font-size:11px;color:var(--text3)">${u.role==='counselor'?'Sees':'Also sees'} grades ${escapeHtmlLite(u.seeGrades.join(', '))}</div>`:''}</td>
+        <td style="padding:7px 6px">${chip(u)}</td><td style="padding:7px 6px">${u.active?'Active':'Deactivated'}</td><td style="padding:7px 6px;color:var(--text2)">${when(u.lastLogin)}</td>
+        <td style="padding:7px 6px;text-align:right;white-space:nowrap">${u.id===currentUser.id?'<span style="font-size:12px;color:var(--text3)">You</span>':`<button class="btn btn-sm" onclick="showUserForm('${u.id}')">Edit</button> <button class="btn btn-sm" onclick="showUserForm('${u.id}',true)">Reset code</button> <button class="btn btn-sm" onclick="toggleUserActive('${u.id}')">${u.active?'Deactivate':'Reactivate'}</button>`}</td></tr>`).join('')}
+      </table></div><div style="font-size:12px;color:var(--text3);margin-top:8px">${accessUsers.filter(u=>u.active).length} active · ${accessUsers.filter(u=>!u.active).length} deactivated</div></div>
+    <div class="card"><div class="card-title"><i class="ti ti-lock-access"></i> What each role can do</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:var(--text3);font-size:11px"><th style="text-align:left;padding:6px"></th><th>DCLC Admin</th><th>Interventionist</th><th>School Leadership</th><th>Counselor</th><th>Teacher</th></tr>
+      ${perm('See students','All','All','All','Their grades','Own students')}
+      ${perm('Diagnosis, accommodations, NWEA, progress','✓','✓','View','View','View')}
+      ${perm('Add / edit students, accommodations, inactive','✓','—','—','—','—')}
+      ${perm('Add progress, documentation, sessions, notes, uploads','✓','✓','—','—','—')}
+      ${perm('FIE documents, notes, parent email','✓','✓','View','—','—')}
+      ${perm('Testing calendar approvals, imports, Access &amp; roles','✓','—','—','—','—')}</table></div>`;
+}
+function showUserForm(id, resetOnly){
+  const u=id?accessUsers.find(x=>x.id===id):{role:'teacher',active:true};
+  document.getElementById('formTitle').textContent=resetOnly?('Reset code — '+u.name):(id?'Edit '+u.name:'Add person');
+  const teacherOpts=(typeof TEACHER_COURSES!=='undefined')?Object.keys(TEACHER_COURSES).sort():[];
+  document.getElementById('formBody').innerHTML=resetOnly?`<div class="form-grid"><div class="ff full"><label>New code (at least 6 characters)</label><input id="uf_code" placeholder="e.g. duke-4821"></div>
+      <div class="ff full" style="font-size:12px;color:var(--text3)">Give ${escapeHtmlLite(u.name)} the new code. Their old code stops working right away.</div></div>`:`<div class="form-grid">
+    <div class="ff"><label>Name *</label><input id="uf_name" value="${escapeHtmlLite(u.name||'')}" list="uf_teachers"><datalist id="uf_teachers">${teacherOpts.map(t=>`<option value="${escapeHtmlLite(t)}">`).join('')}</datalist></div>
+    <div class="ff"><label>Title</label><input id="uf_title" value="${escapeHtmlLite(u.title||'')}" placeholder="e.g. Admissions Counselor"></div>
+    <div class="ff"><label>Role *</label><select id="uf_role" onchange="document.getElementById('uf_tbox').style.display=(this.value==='teacher'||this.value==='counselor')?'grid':'none';document.querySelectorAll('.uf_tonly').forEach(x=>x.style.display=this.value==='teacher'?'':'none')">${Object.keys(ROLE_INFO).map(k=>`<option value="${k}"${u.role===k?' selected':''}>${ROLE_INFO[k].label}</option>`).join('')}</select></div>
+    <div class="ff"><label>${id?'New code (leave blank to keep)':'Starting code *'}</label><input id="uf_code" placeholder="at least 6 characters"></div>
+    <div id="uf_tbox" class="ff full" style="display:${(u.role==='teacher'||u.role==='counselor')?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">
+      <div class="ff uf_tonly" style="display:${u.role==='teacher'?'':'none'}"><label>Teacher name on schedules</label><input id="uf_tname" value="${escapeHtmlLite(u.teacherName||'')}" placeholder="Same as name" list="uf_teachers"></div>
+      <div class="ff uf_tonly" style="display:${u.role==='teacher'?'':'none'}"><label>Also sees this teacher's students</label><input id="uf_seet" value="${escapeHtmlLite(u.seeTeacher||'')}" placeholder="Optional" list="uf_teachers"></div>
+      <div class="ff full"><label>Grades they see (counselors: 9–12 if none checked; teachers: optional extra grades)</label><div>${['6','7','8','9','10','11','12'].map(g=>`<label style="font-weight:400;margin-right:10px"><input type="checkbox" class="uf_g" value="${g}" ${(u.seeGrades||[]).includes(g)?'checked':''} style="width:auto"> ${g}</label>`).join('')}</div></div></div>
+  </div>`;
+  document.getElementById('formBody').innerHTML+='<div id="uf_msg" style="color:#A32D2D;font-size:12px;margin-top:8px"></div>';
+  document.getElementById('formActions').innerHTML=`<button class="btn" onclick="closeForm()">Cancel</button><button class="btn btn-primary" onclick="saveUserForm('${id||''}',${resetOnly?'true':'false'})">Save</button>`;
+  document.getElementById('formOv').style.display='flex';
+}
+async function saveUserForm(id, resetOnly){
+  const u=id?Object.assign({},accessUsers.find(x=>x.id===id)):{};
+  const v=k=>(document.getElementById(k)||{}).value;
+  if(resetOnly){ u.code=(v('uf_code')||'').trim(); if(!u.code){ document.getElementById('uf_msg').textContent='Enter the new code.'; return; } }
+  else {
+    Object.assign(u,{ name:(v('uf_name')||'').trim(), title:(v('uf_title')||'').trim(), role:v('uf_role'), code:(v('uf_code')||'').trim(),
+      teacherName:(v('uf_tname')||'').trim(), seeTeacher:(v('uf_seet')||'').trim(), seeGrades:[...document.querySelectorAll('.uf_g:checked')].map(x=>x.value) });
+    if(u.active===undefined) u.active=true;
+  }
+  const r=await drivePost({ action:'saveUser', user:u });
+  if(!r||!r.ok){ document.getElementById('uf_msg').textContent=(r&&(r.message||r.error))||'Could not save.'; return; }
+  closeForm(); openAccess();
+}
+async function toggleUserActive(id){
+  const u=accessUsers.find(x=>x.id===id); if(!u) return;
+  if(u.active && !confirm('Deactivate '+u.name+'? They won\'t be able to sign in until you reactivate them.')) return;
+  const r=await drivePost({ action:'saveUser', user:Object.assign({},u,{active:!u.active}) });
+  if(!r||!r.ok){ alert((r&&(r.message||r.error))||'Could not save.'); return; }
+  openAccess();
+}
+
+// ── CSV DOWNLOAD (any table on the page) ─────────────────────────
+function downloadCsv(rows, filename){
+  const esc=v=>{ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const blob=new Blob(['﻿'+rows.map(r=>r.map(esc).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+}
+function tableToRows(container){
+  const rows=[]; (container?container.querySelectorAll('table'):[]).forEach((t,ti)=>{
+    if(ti>0) rows.push([]);
+    t.querySelectorAll('tr').forEach(tr=>rows.push([...tr.children].map(c=>c.innerText.replace(/\s+/g,' ').trim())));
+  }); return rows;
+}
+function csvStamp(){ return new Date().toISOString().slice(0,10); }
+
+// ── MISSING DATA REPORT ───────────────────────────────────────────
+const MISSING_CHECKS=[
+  ['Re-eval date', s=>!s.fieDue], ['FIE date', s=>!s.lastFie], ['Diagnosis', s=>!(s.diagnoses||[]).length],
+  ['FIE document', s=>!(s.fieDocs||[]).length && !(s.otherDocs||[]).length], ['Accommodations', s=>!(s.accommodations||[]).length],
+  ['Teachers', s=>!(s.teacherList||[]).length], ['Schedule', s=>typeof STUDENT_SCHEDULES!=='undefined' && !STUDENT_SCHEDULES[s.name]],
+  ['Parent email', s=>!s.parent1 && !s.parent2], ['Test delivery', s=>!s.testDelivery]
+];
+function missingRows(){
+  return activeStudents().map(s=>({ s, miss:MISSING_CHECKS.filter(c=>c[1](s)).map(c=>c[0]) })).filter(r=>r.miss.length)
+    .sort((a,b)=>b.miss.length-a.miss.length || String(a.s.grade).localeCompare(String(b.s.grade),undefined,{numeric:true}) || a.s.name.localeCompare(b.s.name));
+}
+function buildMissingReport(){
+  const el=document.getElementById('repPanel4'); if(!el) return;
+  const rows=missingRows(), tot={}; rows.forEach(r=>r.miss.forEach(m=>tot[m]=(tot[m]||0)+1));
+  el.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="font-size:13px;color:var(--text2)"><b>${rows.length}</b> of ${activeStudents().length} active students are missing something · most missing first</div>
+      <div><button class="btn btn-sm" onclick="downloadCsv([['Grade','Student','Missing']].concat(missingRows().map(r=>[r.s.grade,r.s.name,r.miss.join('; ')])),'DCLC_missing_data_'+csvStamp()+'.csv')"><i class="ti ti-download"></i> Download CSV</button>
+      <button class="btn btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Print</button></div></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${MISSING_CHECKS.map(c=>tot[c[0]]?`<span style="font-size:11px;padding:2px 9px;border-radius:12px;background:var(--bg2);color:var(--text2)">${c[0]}: <b>${tot[c[0]]}</b></span>`:'').join('')}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="color:var(--text3);font-size:11px;text-align:left"><th style="padding:6px">Gr</th><th style="padding:6px">Student</th><th style="padding:6px">Missing</th><th></th></tr>
+      ${rows.map(r=>`<tr style="border-top:1px solid var(--border)"><td style="padding:6px">${escapeHtmlLite(r.s.grade)}</td><td style="padding:6px"><b>${escapeHtmlLite(r.s.name)}</b></td>
+        <td style="padding:6px">${r.miss.map(m=>`<span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;background:#FCEBEB;color:#A32D2D;margin:1px 3px 1px 0">${m}</span>`).join('')}</td>
+        <td style="padding:6px;text-align:right"><button class="btn btn-sm" onclick="selectStudent('${r.s.id}')">Open</button></td></tr>`).join('')}
+    </table></div></div>`;
+}
+
+// ── GRADE WATCH LIST ──────────────────────────────────────────────
+let gwCut=70, gwDrop=8;
+function gradeWatchRows(){
+  const out=[];
+  activeStudents().forEach(s=>{
+    const h=s.gradeHistory||[]; if(!h.length) return;
+    const last=h[h.length-1], prev=h.length>1?h[h.length-2]:null;
+    Object.entries(last.grades||{}).forEach(([c,v])=>{
+      if(typeof v!=='number') return;
+      const p=prev&&typeof (prev.grades||{})[c]==='number'?prev.grades[c]:null;
+      const drop=p!==null?p-v:0;
+      if(v<gwCut||drop>=gwDrop) out.push({ s, course:c, now:v, prev:p, drop, week:last.week, low:v<gwCut, falling:drop>=gwDrop });
+    });
+  });
+  return out.sort((a,b)=>a.now-b.now || b.drop-a.drop);
+}
+function buildGradeWatch(){
+  const el=document.getElementById('repPanel5'); if(!el) return;
+  const rows=gradeWatchRows(), wk=rows.length?rows[0].week:'';
+  el.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="font-size:13px;color:var(--text2)">Latest weekly grades from the Check-In tool · flag below
+        <input type="number" value="${gwCut}" style="width:56px;padding:3px 6px;border:1px solid var(--border2);border-radius:6px" onchange="gwCut=+this.value||70;buildGradeWatch()"> or a drop of
+        <input type="number" value="${gwDrop}" style="width:48px;padding:3px 6px;border:1px solid var(--border2);border-radius:6px" onchange="gwDrop=+this.value||8;buildGradeWatch()"> + points</div>
+      <div><button class="btn btn-sm" onclick="downloadCsv([['Grade','Student','Class','Now','Week before','Why','Week']].concat(gradeWatchRows().map(r=>[r.s.grade,r.s.name,r.course,r.now,r.prev==null?'':r.prev,[r.low?'Below '+gwCut:'',r.falling?'Down '+r.drop:''].filter(Boolean).join('; '),r.week])),'DCLC_grade_watch_'+csvStamp()+'.csv')"><i class="ti ti-download"></i> Download CSV</button>
+      <button class="btn btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Print</button></div></div>
+    ${rows.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="color:var(--text3);font-size:11px;text-align:left"><th style="padding:6px">Gr</th><th style="padding:6px">Student</th><th style="padding:6px">Class</th><th style="padding:6px;text-align:center">Now</th><th style="padding:6px;text-align:center">Week before</th><th style="padding:6px">Why</th><th></th></tr>
+      ${rows.map(r=>`<tr style="border-top:1px solid var(--border)"><td style="padding:6px">${escapeHtmlLite(r.s.grade)}</td><td style="padding:6px"><b>${escapeHtmlLite(r.s.name)}</b></td><td style="padding:6px">${escapeHtmlLite(r.course)}</td>
+        <td style="padding:6px;text-align:center;font-weight:700;color:${r.low?'#A32D2D':'#854F0B'}">${r.now}</td><td style="padding:6px;text-align:center">${r.prev==null?'—':r.prev}</td>
+        <td style="padding:6px">${r.low?`<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;background:#FCEBEB;color:#A32D2D">Below ${gwCut}</span> `:''}${r.falling?`<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;background:#FAEEDA;color:#854F0B">↓${r.drop}</span>`:''}</td>
+        <td style="padding:6px;text-align:right"><button class="btn btn-sm" onclick="selectStudent('${r.s.id}')">Open</button></td></tr>`).join('')}</table></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">Week of ${escapeHtmlLite(wk)}</div>`
+      :'<div style="color:var(--text3);font-size:13px">No grades match right now.</div>'}</div>`;
 }
 
 // ── NWEA MAP RESULTS (imported from the NWEA Combined Data File) ─────────
@@ -1844,12 +2166,12 @@ function renderDocs(s,dueAlert){
       ${m.followUp?`<div style="font-size:12px;color:var(--text2);background:var(--bg2);border-radius:6px;padding:6px 8px;margin-top:4px"><strong>Follow up:</strong> ${m.followUp}</div>`:''}
     </div>`).join('') : '<div style="color:var(--text3);font-size:13px;padding:8px 0">No entries yet.</div>';
 
-  return dueAlert+`<div class="card"><div class="card-title"><i class="ti ti-calendar-due"></i> Evaluation timeline</div>
+  return dueAlert+sessionsCard(s)+`<div class="card adm-only"><div class="card-title"><i class="ti ti-calendar-due"></i> Evaluation timeline</div>
     <div class="field-grid">
       <div class="field"><label>Last FIE date</label><div class="field-val${!s.lastFie?' empty':''}">${s.lastFie||'Not recorded'}</div></div>
       <div class="field"><label>Next FIE due</label><div class="field-val${!s.fieDue?' empty':''}">${s.fieDue||'Not set'}</div></div>
     </div></div>
-  <div class="card">
+  <div class="card adm-only">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <span><i class="ti ti-mail"></i> Parent Email Communication</span>
       <div style="display:flex;align-items:center;gap:8px">
@@ -1916,7 +2238,8 @@ function saveMeetingLog(sid){
     date:date,
     attendees:document.getElementById('ml_attendees').value,
     notes:document.getElementById('ml_notes').value,
-    followUp:document.getElementById('ml_followup').value
+    followUp:document.getElementById('ml_followup').value,
+    by:currentUser?currentUser.name:''
   });
   s.meetingLog.sort((a,b)=>a.date.localeCompare(b.date));
   saveLocal();pushStudent(s);closeForm();selectStudent(sid);
@@ -1937,7 +2260,7 @@ async function searchParentEmails(sid, sname){
   const searchAs = document.getElementById('emailSearchAs_'+sid)?.value || localStorage.getItem('dclc_email_search_as') || 'Betsy Seabourn';
   const targetUrl = searchAs==='Mrs. Barker' ? BARKER_EMAIL_SCRIPT_URL : scriptUrl;
   try{
-    const r = await fetch(targetUrl+'?action=getParentEmailThreads&studentName='+encodeURIComponent(sname)).then(r=>r.json());
+    const r = await fetch(targetUrl+'?action=getParentEmailThreads&studentName='+encodeURIComponent(sname)+(targetUrl===scriptUrl?'&token='+encodeURIComponent(sessionToken):'')).then(r=>r.json());
     if(el){
       if(r.threads && r.threads.length){
         emailThreadCache[sid] = r.threads;
@@ -2658,7 +2981,7 @@ function deleteStudent(id){
   saveLocal();
   // Also remove from Drive
   if(scriptUrl){
-    fetch(scriptUrl,{method:'POST',body:JSON.stringify({action:'saveStudents',students})}).catch(()=>{});
+    fetch(scriptUrl,{method:'POST',body:JSON.stringify({action:'saveStudents',students,token:sessionToken})}).catch(()=>{});
   }
   currentId=null;
   renderList();
@@ -3504,7 +3827,7 @@ async function hubPrint(id, which){
   const docs = [];
   for(const rn of rows){
     try{
-      const r = await fetch(scriptUrl+'?action=hubSubmission&row='+rn).then(x=>x.json());
+      const r = await fetch(scriptUrl+'?action=hubSubmission&row='+rn+'&token='+encodeURIComponent(sessionToken)).then(x=>x.json());
       if(r && r.ok) docs.push(`<div class="hp-doc"><h2 class="hp-title">${escapeHtmlLite(r.testTitle)}</h2><p class="hp-student">${escapeHtmlLite(r.studentName)}</p>${hubPrintDoc(r.items||[])}</div>`);
       else docs.push(`<div class="hp-doc"><p style="color:#b00020">${escapeHtmlLite((r&&r.error)||'Could not load this test.')}</p></div>`);
     } catch(e){ docs.push('<div class="hp-doc"><p style="color:#b00020">Could not load this test.</p></div>'); }
@@ -3885,11 +4208,15 @@ function openReports(){
     </div>
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px">
       <button id="repTab1" onclick="switchReportsTab(1)" style="padding:8px 18px;font-size:13px;font-weight:700;color:var(--navy);background:none;border:none;border-bottom:2px solid var(--navy);margin-bottom:-2px;cursor:pointer;font-family:Arial">Caseload Overview</button>
-      ${isPrincipal ? '' : `<button id="repTab3" onclick="switchReportsTab(3)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">School Wide Overview</button>`}
+      <button id="repTab3" onclick="switchReportsTab(3)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">School Wide Overview</button>
+      <button id="repTab4" onclick="switchReportsTab(4)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">Missing data</button>
+      <button id="repTab5" onclick="switchReportsTab(5)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">Grade watch list</button>
       <button id="repTab2" onclick="switchReportsTab(2)" style="padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial">Student Detail</button>
     </div>
     <div id="repPanel1"></div>
     <div id="repPanel3" style="display:none"></div>
+    <div id="repPanel4" style="display:none"></div>
+    <div id="repPanel5" style="display:none"></div>
     <div id="repPanel2" style="display:none"></div>`;
   buildCaseloadReport();
 }
@@ -3897,7 +4224,7 @@ function openReports(){
 function switchReportsTab(tab){
   const on  = 'padding:8px 18px;font-size:13px;font-weight:700;color:var(--navy);background:none;border:none;border-bottom:2px solid var(--navy);margin-bottom:-2px;cursor:pointer;font-family:Arial';
   const off = 'padding:8px 18px;font-size:13px;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;font-family:Arial';
-  [1,2,3].forEach(n=>{
+  [1,2,3,4,5].forEach(n=>{
     const p = document.getElementById('repPanel'+n), b = document.getElementById('repTab'+n);
     if(p) p.style.display = tab===n ? 'block' : 'none';
     if(b) b.style.cssText = tab===n ? on : off;
@@ -3905,6 +4232,8 @@ function switchReportsTab(tab){
   if(tab===1) buildCaseloadReport();
   if(tab===2) buildStudentReportPicker();
   if(tab===3) buildSchoolWideReport();
+  if(tab===4) buildMissingReport();
+  if(tab===5) buildGradeWatch();
 }
 
 // ── SCHOOL WIDE OVERVIEW ───────────────────────────────────────
@@ -4019,6 +4348,7 @@ function renderSchoolWideReport(){
     <div class="sw-noprint" style="display:flex;gap:8px">
       <button class="btn btn-sm" onclick="toggleSwEnrollment()"><i class="ti ti-users"></i> Enrollment</button>
       <button class="btn btn-sm" onclick="buildSchoolWideReport()"><i class="ti ti-refresh"></i> Refresh</button>
+      <button class="btn btn-sm" onclick="downloadCsv(tableToRows(document.getElementById('repPanel3')),'DCLC_school_wide_'+csvStamp()+'.csv')"><i class="ti ti-download"></i> CSV</button>
       <button class="btn btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Print</button>
     </div>
   </div>
@@ -4107,8 +4437,19 @@ function buildCaseloadReport(){
         </div>
       </div>
     </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin:-6px 0 12px"><button class="btn btn-sm" onclick="downloadCaseloadCsv()"><i class="ti ti-download"></i> Download CSV</button></div>
     <div id="rep_results"></div>`;
   renderCaseloadReport();
+}
+
+function downloadCaseloadCsv(){
+  const grade=document.getElementById('rep_grade')?.value||'', tier=document.getElementById('rep_tier')?.value||'', diag=document.getElementById('rep_diag')?.value||'';
+  const list=activeStudents().filter(s=>(!grade||s.grade===grade)&&(!tier||s.tier===tier)&&(!diag||(s.diagnoses||[]).includes(diag)))
+    .sort((a,b)=>String(a.grade).localeCompare(String(b.grade),undefined,{numeric:true})||a.name.localeCompare(b.name));
+  const latest=s=>{ const h=s.gradeHistory||[]; if(!h.length) return ''; return Object.entries(h[h.length-1].grades||{}).map(([c,v])=>c+' '+v).join('; '); };
+  downloadCsv([['Grade','Student','Tier','Diagnoses','Last FIE','Re-eval due','Accommodations','Teachers','NWEA term','Reading RIT','Language RIT','Math RIT','Latest grades']]
+    .concat(list.map(s=>[s.grade,s.name,s.tier||'',(s.diagnoses||[]).join('; '),s.lastFie||'',s.fieDue||'',(s.accommodations||[]).length,(s.teacherList||[]).join('; '),s.nweaTerm||'',s.nweaReading||'',s.nweaLanguage||'',s.nweaMath||'',latest(s)])),
+    'DCLC_caseload_'+csvStamp()+'.csv');
 }
 
 function renderCaseloadReport(){
@@ -5268,21 +5609,25 @@ function saveEditCalEvent(id){
   renderApprovedEvents();
 }
 
-function checkLogin(){
-  var code = document.getElementById('loginCode').value;
-  if(code === 'DCLC8992'){
-    sessionStorage.setItem('dclc_auth','1');
-    // Open in new tab if embedded in Google Sites
+async function checkLogin(){
+  const input=document.getElementById('loginCode'), err=document.getElementById('loginError'), btn=document.getElementById('loginBtn');
+  const code=(input.value||'').trim(); if(!code) return;
+  btn.disabled=true; btn.textContent='Signing in…'; err.style.display='none';
+  try{
+    const r=await fetch(PORTAL_SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'login',code})}).then(x=>x.json());
+    if(!r.ok){ err.textContent=r.error||'That code did not work.'; err.style.display='block'; input.value=''; return; }
+    sessionToken=r.token; currentUser=r.user; saveSession();
+    input.value='';
     document.getElementById('loginGate').style.display='none';
     init();
-  } else {
-    document.getElementById('loginError').style.display='block';
-    document.getElementById('loginCode').value='';
-  }
+  }catch(e){ err.textContent='Could not reach the portal. Check your connection and try again.'; err.style.display='block'; }
+  finally{ btn.disabled=false; btn.textContent='Sign in'; }
 }
 
-// Auto-init if already authenticated this session
-if(sessionStorage.getItem('dclc_auth')==='1'){
+// Old shared-code sign-in leftovers
+try{ sessionStorage.removeItem('dclc_auth'); localStorage.removeItem('dclc_principal_auth'); localStorage.removeItem('dclc_students'); }catch(e){}
+// Stay signed in for this browser tab
+if(loadSession()){
   document.getElementById('loginGate').style.display='none';
   init();
 }
