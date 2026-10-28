@@ -3982,7 +3982,7 @@ async function toggleTestComplete(id, isChecked){
     const cb = card.querySelector('input[onchange^="toggleTestComplete"]');
     if(cb) cb.checked = isChecked;
   });
-  await saveCalendarEvents();
+  await patchCalendarEvent(id, { completed: isChecked });
 }
 
 async function toggleAttendance(eventId, studentId, attended){
@@ -4000,7 +4000,7 @@ async function toggleAttendance(eventId, studentId, attended){
     btn.style.background = attended ? 'var(--bg2)' : 'transparent';
     btn.style.color = attended ? 'var(--text2)' : 'var(--text3)';
   }
-  await saveCalendarEvents();
+  await patchCalendarEvent(eventId, { attendance: { [studentId]: ev.attendance[studentId] } });
 }
 
 function openAccommModal(eventId, studentId, studentName){
@@ -4064,7 +4064,7 @@ async function toggleAccommUsed(eventId, studentId, accommName, used){
     const total = (s ? (s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a)).length : 0) + 1; // +1 for the always-available pilot checkbox
     btn.innerHTML = '<i class="ti ti-adjustments" style="font-size:11px"></i> '+list.length+'/'+total;
   }
-  await saveCalendarEvents();
+  await patchCalendarEvent(eventId, { attendance: { [studentId]: ev.attendance[studentId] } });
 }
 
 
@@ -5354,7 +5354,7 @@ async function clearPastEvents(){
   if(!pastCount){ alert('No past events to clear.'); return; }
   if(!confirm(`Remove ${pastCount} past event${pastCount!==1?'s':''} from your approved list?`)) return;
   calendarEvents = calendarEvents.filter(e=>!e.date || new Date(e.date+'T12:00:00') >= now);
-  await saveCalendarEvents();
+  await saveCalendarEvents({ allowShrink:true });
   renderApprovedEvents();
 }
 
@@ -5365,10 +5365,20 @@ function deleteCalEvent(id){
   renderApprovedEvents();
 }
 
-async function saveCalendarEvents(){
+async function saveCalendarEvents(opts){
   try{
-    await drivePost({ action:'saveCalendarEvents', events:calendarEvents });
+    const r = await drivePost({ action:'saveCalendarEvents', events:calendarEvents, allowShrink: !!(opts && opts.allowShrink) });
+    if(r && r.ok===false && r.error && !r.blocked) alert(r.error);
+    return r;
   } catch(e){ console.warn('Calendar save failed:', e); }
+}
+// Prep check-offs save only the one change (see patchCalendarEvent in Code.gs).
+async function patchCalendarEvent(eventId, patch){
+  try{
+    const r = await drivePost({ action:'patchCalendarEvent', eventId, patch });
+    if(r && r.ok===false && r.error && !r.blocked) alert(r.error);
+    return r;
+  } catch(e){ console.warn('Check-off save failed:', e); }
 }
 
 // Re-runs student matching for every upcoming, not-yet-completed approved event,
@@ -5484,7 +5494,7 @@ async function approveAll(){
 async function clearAllApproved(){
   if(!confirm('Delete all approved events? This cannot be undone.')) return;
   calendarEvents = [];
-  await saveCalendarEvents();
+  await saveCalendarEvents({ allowShrink:true });
   renderApprovedEvents();
 }
 
