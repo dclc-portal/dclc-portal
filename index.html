@@ -1437,7 +1437,7 @@ function renderAccess(){
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <tr style="color:var(--text3);font-size:11px;text-align:left"><th style="padding:6px">Name</th><th style="padding:6px">Role</th><th style="padding:6px">Status</th><th style="padding:6px">Last sign-in</th><th></th></tr>
       ${rows.map(u=>`<tr style="border-top:1px solid var(--border);${u.active?'':'opacity:.55'}"><td style="padding:7px 6px"><b>${escapeHtmlLite(u.name)}</b>${u.title?` <span style="color:var(--text3);font-size:12px">${escapeHtmlLite(u.title)}</span>`:''}
-          ${u.seeTeacher?`<div style="font-size:11px;color:var(--text3)">Also sees ${escapeHtmlLite(u.seeTeacher)}'s students</div>`:''}${(u.seeGrades||[]).length?`<div style="font-size:11px;color:var(--text3)">${u.role==='counselor'?'Sees':'Also sees'} grades ${escapeHtmlLite(u.seeGrades.join(', '))}</div>`:''}</td>
+          ${u.seeTeacher?`<div style="font-size:11px;color:var(--text3)">Also sees ${escapeHtmlLite(u.seeTeacher)}'s students</div>`:''}${(u.seeGrades||[]).length?`<div style="font-size:11px;color:var(--text3)">${u.role==='counselor'?'Sees':'Also sees'} grades ${escapeHtmlLite(u.seeGrades.join(', '))}</div>`:''}${u.emailSearchUrl?'<div style="font-size:11px;color:#0F6E56">✉ Gmail search linked</div>':''}</td>
         <td style="padding:7px 6px">${chip(u)}</td><td style="padding:7px 6px">${u.active?'Active':'Deactivated'}</td><td style="padding:7px 6px;color:var(--text2)">${when(u.lastLogin)}</td>
         <td style="padding:7px 6px;text-align:right;white-space:nowrap">${u.id===currentUser.id?'<span style="font-size:12px;color:var(--text3)">You</span>':`<button class="btn btn-sm" onclick="showUserForm('${u.id}')">Edit</button> <button class="btn btn-sm" onclick="showUserForm('${u.id}',true)">Reset code</button> <button class="btn btn-sm" onclick="toggleUserActive('${u.id}')">${u.active?'Deactivate':'Reactivate'}</button>`}</td></tr>`).join('')}
       </table></div><div style="font-size:12px;color:var(--text3);margin-top:8px">${accessUsers.filter(u=>u.active).length} active · ${accessUsers.filter(u=>!u.active).length} deactivated</div></div>
@@ -1460,6 +1460,7 @@ function showUserForm(id, resetOnly){
     <div class="ff"><label>Title</label><input id="uf_title" value="${escapeHtmlLite(u.title||'')}" placeholder="e.g. Admissions Counselor"></div>
     <div class="ff"><label>Role *</label><select id="uf_role" onchange="document.getElementById('uf_tbox').style.display=(this.value==='teacher'||this.value==='counselor')?'grid':'none';document.querySelectorAll('.uf_tonly').forEach(x=>x.style.display=this.value==='teacher'?'':'none')">${Object.keys(ROLE_INFO).map(k=>`<option value="${k}"${u.role===k?' selected':''}>${ROLE_INFO[k].label}</option>`).join('')}</select></div>
     <div class="ff"><label>${id?'New code (leave blank to keep)':'Starting code *'}</label><input id="uf_code" placeholder="at least 6 characters"></div>
+    <div class="ff full"><label>Gmail search link (optional — lets this person search their own Gmail for parent emails)</label><input id="uf_es" value="${escapeHtmlLite(u.emailSearchUrl||'')}" placeholder="https://script.google.com/macros/s/…/exec"></div>
     <div id="uf_tbox" class="ff full" style="display:${(u.role==='teacher'||u.role==='counselor')?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">
       <div class="ff uf_tonly" style="display:${u.role==='teacher'?'':'none'}"><label>Teacher name on schedules</label><input id="uf_tname" value="${escapeHtmlLite(u.teacherName||'')}" placeholder="Same as name" list="uf_teachers"></div>
       <div class="ff uf_tonly" style="display:${u.role==='teacher'?'':'none'}"><label>Also sees this teacher's students</label><input id="uf_seet" value="${escapeHtmlLite(u.seeTeacher||'')}" placeholder="Optional" list="uf_teachers"></div>
@@ -1475,7 +1476,8 @@ async function saveUserForm(id, resetOnly){
   if(resetOnly){ u.code=(v('uf_code')||'').trim(); if(!u.code){ document.getElementById('uf_msg').textContent='Enter the new code.'; return; } }
   else {
     Object.assign(u,{ name:(v('uf_name')||'').trim(), title:(v('uf_title')||'').trim(), role:v('uf_role'), code:(v('uf_code')||'').trim(),
-      teacherName:(v('uf_tname')||'').trim(), seeTeacher:(v('uf_seet')||'').trim(), seeGrades:[...document.querySelectorAll('.uf_g:checked')].map(x=>x.value) });
+      teacherName:(v('uf_tname')||'').trim(), seeTeacher:(v('uf_seet')||'').trim(), seeGrades:[...document.querySelectorAll('.uf_g:checked')].map(x=>x.value),
+      emailSearchUrl:(v('uf_es')||'').trim() });
     if(u.active===undefined) u.active=true;
   }
   const r=await drivePost({ action:'saveUser', user:u });
@@ -2175,14 +2177,14 @@ function renderDocs(s,dueAlert){
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <span><i class="ti ti-mail"></i> Parent Email Communication</span>
       <div style="display:flex;align-items:center;gap:8px">
-        <select id="emailSearchAs_${s.id}" onchange="localStorage.setItem('dclc_email_search_as', this.value)" style="padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
+${isAdmin()?`<select id="emailSearchAs_${s.id}" onchange="localStorage.setItem('dclc_email_search_as', this.value)" style="padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:Arial">
           <option value="Betsy Seabourn"${(localStorage.getItem('dclc_email_search_as')||'Betsy Seabourn')==='Betsy Seabourn'?' selected':''}>Search as: Betsy Seabourn</option>
           <option value="Mrs. Barker"${localStorage.getItem('dclc_email_search_as')==='Mrs. Barker'?' selected':''}>Search as: Mrs. Barker</option>
-        </select>
-        <button class="btn btn-sm" onclick="searchParentEmails('${s.id}','${s.name.replace(/'/g,"\\'")}')"><i class="ti ti-search"></i> Search Gmail</button>
+        </select>`:''}
+        <button class="btn btn-sm" onclick="searchParentEmails('${s.id}','${s.name.replace(/'/g,"\\'")}')"><i class="ti ti-search"></i> ${isAdmin()?'Search Gmail':'Search my Gmail'}</button>
       </div>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Searches the selected person's own Gmail for real correspondence with this student's parents. Routine weekly check-in emails are skipped unless a parent replied.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${isAdmin()?'Searches the selected person\'s own Gmail':'Searches your own Gmail'} for real correspondence with this student's parents. Routine weekly check-in emails are skipped unless a parent replied.</div>
     <div id="emailThreads_${s.id}">
       <div style="color:var(--text3);font-size:13px">Click "Search Gmail" to look for parent correspondence.</div>
     </div>
@@ -2257,10 +2259,22 @@ function deleteMeetingLog(sid,mid){
 async function searchParentEmails(sid, sname){
   const el = document.getElementById('emailThreads_'+sid);
   if(el) el.innerHTML = '<div style="color:var(--text3);font-size:13px"><i class="ti ti-refresh" style="animation:spin 1s linear infinite"></i> Searching Gmail...</div>';
-  const searchAs = document.getElementById('emailSearchAs_'+sid)?.value || localStorage.getItem('dclc_email_search_as') || 'Betsy Seabourn';
-  const targetUrl = searchAs==='Mrs. Barker' ? BARKER_EMAIL_SCRIPT_URL : scriptUrl;
+  let url;
+  if(isAdmin()){
+    const searchAs = document.getElementById('emailSearchAs_'+sid)?.value || localStorage.getItem('dclc_email_search_as') || 'Betsy Seabourn';
+    url = searchAs==='Mrs. Barker'
+      ? BARKER_EMAIL_SCRIPT_URL+'?action=getParentEmailThreads&studentName='+encodeURIComponent(sname)
+      : scriptUrl+'?action=getParentEmailThreads&studentName='+encodeURIComponent(sname)+'&token='+encodeURIComponent(sessionToken);
+  } else {
+    // Interventionists search their OWN Gmail through their personal email-search link (set on Access & roles).
+    const mine = currentUser && currentUser.emailSearchUrl;
+    if(!mine){ if(el) el.innerHTML='<div style="color:var(--text3);font-size:13px">Your Gmail search isn\'t set up yet. Ask Mrs. Seabourn to add your email-search link on the Access &amp; roles page.</div>'; return; }
+    const st = students.find(x=>x.id===sid) || {};
+    url = mine+'?action=getParentEmailThreads&parent1='+encodeURIComponent(st.parent1||'')+'&parent2='+encodeURIComponent(st.parent2||'')+'&token='+encodeURIComponent(sessionToken);
+  }
   try{
-    const r = await fetch(targetUrl+'?action=getParentEmailThreads&studentName='+encodeURIComponent(sname)+(targetUrl===scriptUrl?'&token='+encodeURIComponent(sessionToken):'')).then(r=>r.json());
+    const r = await fetch(url).then(r=>r.json());
+    if(r && r.ok===false && r.error && el){ el.innerHTML='<div style="color:#A32D2D;font-size:13px">'+escapeHtmlLite(r.error)+'</div>'; return; }
     if(el){
       if(r.threads && r.threads.length){
         emailThreadCache[sid] = r.threads;
@@ -5079,8 +5093,14 @@ function peCheck(i){
   else if(hasList && !course) errs.course = 'Pick the course from the list';
   else if(!hasList && !typed) errs.course = 'This teacher has no course list — type the class name';
   if(!periods.length) errs.periods = 'Check at least one period — with none, every student this teacher has is put on the test';
-  const warn = (type && !/^(test|quiz)$/i.test(type)) ? 'Is this a test or quiz? Only Tests and Quizzes can have a digital test built.' : '';
-  return { ok: !Object.keys(errs).length, errs, warn, course: hasList ? course : typed };
+  let warn = (type && !/^(test|quiz)$/i.test(type)) ? 'Is this a test or quiz? Only Tests and Quizzes can have a digital test built.' : '';
+  const courseVal = hasList ? course : typed;
+  let matches = null;
+  if(!Object.keys(errs).length){
+    matches = getMatchingStudentIds(teacher, courseVal, periods.map(String)).length;
+    if(!matches) warn = (warn ? warn+' ' : '') + 'No DCLC students are in this course and period — check the course and period, or approve anyway if none of ours take it.';
+  }
+  return { ok: !Object.keys(errs).length, errs, warn, course: courseVal, matches };
 }
 
 function peValidate(i){
@@ -5093,6 +5113,7 @@ function peValidate(i){
   if(val){
     const lines = Object.values(c.errs).map(t=>`<div style="color:#A32D2D;font-size:11px;font-weight:700">⚠ ${t}</div>`);
     if(c.warn) lines.push(`<div style="color:#854F0B;font-size:11px;font-weight:700">${c.warn}</div>`);
+    if(c.matches) lines.push(`<div style="color:#0F6E56;font-size:11px;font-weight:700">✓ ${c.matches} DCLC student${c.matches===1?'':'s'} will be on this test</div>`);
     val.innerHTML = lines.join('');
   }
   const ok = document.getElementById('pe_ok_'+i);
@@ -5130,6 +5151,25 @@ function getStudentPeriodForTeacher(studentName, teacherName, courseName, period
   return match.period;
 }
 
+// Course names written different ways still match: "IPC" = "Integrated Physics & Chemistry",
+// "US History" = "U.S. History", "Algebra I" = "Algebra 1", and so on.
+function courseNorm(name){
+  return String(name||'').toLowerCase().replace(/&/g,' and ').replace(/\./g,'').replace(/\b(i)\b/g,'1').replace(/\b(ii)\b/g,'2').replace(/\b(iii)\b/g,'3')
+    .replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+}
+function courseAcronym(name){
+  return courseNorm(name).split(' ').filter(w=>w && !['and','of','the','for'].includes(w)).map(w=>/^\d+$/.test(w)?w:w[0]).join('');
+}
+function sameCourse(a, b){
+  const na=courseNorm(a), nb=courseNorm(b);
+  if(!na || !nb) return false;
+  if(na===nb) return true;
+  const wa=na.split(' ').filter(w=>w.length>1), wb=nb.split(' ').filter(w=>w.length>1);
+  if(wa.length && wb.length && (wa.every(w=>wb.includes(w)) || wb.every(w=>wa.includes(w)))) return true;
+  const ca=na.replace(/ /g,''), cb=nb.replace(/ /g,'');
+  return (nb.includes(' ') && ca===courseAcronym(b)) || (na.includes(' ') && cb===courseAcronym(a));
+}
+
 function getMatchingStudentIds(teacher, course, periods){
   if(!teacher && !course) return [];
   const matchingIds = [];
@@ -5151,14 +5191,12 @@ function getMatchingStudentIds(teacher, course, periods){
       const sch = STUDENT_SCHEDULES[s.name];
       if(!sch || !sch.courses) return;
       
-      const courseWords = course.toLowerCase().trim().split(/\s+/).filter(w=>w.length>1);
-      const matchedCourse = sch.courses.find(c=>{
-        // Teacher must match
+      // Same teacher + same course (allowing abbreviations), in one of the event's periods
+      const candidates = sch.courses.filter(c=>{
         if(teacher && c.teacher.toLowerCase().trim() !== teacher.toLowerCase().trim()) return false;
-        // Course words must all match
-        const cWords = c.course.toLowerCase().trim().split(/\s+/).filter(w=>w.length>1);
-        return courseWords.every(w=>cWords.includes(w)) || cWords.every(w=>courseWords.includes(w));
+        return sameCourse(course, c.course);
       });
+      const matchedCourse = (periods && periods.length) ? (candidates.find(c=>!c.period || periods.includes(String(c.period))) || candidates[0]) : candidates[0];
       if(!matchedCourse) return;
       
       // Period match — use the period from THIS matched course, not a separate lookup
