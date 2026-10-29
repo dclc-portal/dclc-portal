@@ -3872,6 +3872,12 @@ const HUB_PRINT_CSS = `
 .hp-doc .pq-bank{margin:0 0 8px 24px;font-size:13px;font-style:italic;color:#333}
 .hp-doc .pq-matchrow{font-size:14px;margin:3px 0 3px 24px;display:flex;align-items:baseline;gap:4px}
 .hp-doc .pq-matchrow .pq-blank{flex:0 0 auto;min-width:90px}
+.hp-doc .pq-match{display:grid;grid-template-columns:2fr 3fr;gap:6px 22px;margin:4px 0 0 24px;font-size:13.5px}
+.hp-doc .pq-mrow{display:flex;align-items:baseline;gap:8px;padding:3px 0}
+.hp-doc .pq-mbox{display:inline-block;min-width:26px;text-align:center;border-bottom:1.5px solid #000;font-weight:bold}
+.hp-doc .pq-mbox-empty{color:#999;font-weight:normal}
+.hp-doc .pq-mdef{padding:2px 0 3px;line-height:1.35}
+.hp-doc .pq-mdef b{margin-right:4px}
 .hp-doc .pq-sectionheader{font-size:15px;font-weight:700;text-align:center;text-decoration:underline;margin:26px 0 12px}
 .hp-doc .pq-img{display:block;max-width:100%;height:auto;margin:8px 0 8px 24px;border:1px solid #ccc}`;
 
@@ -3917,11 +3923,17 @@ function hubPrintDoc(items){
       });
       html += '</div>';
     } else if(item.type==='matching' && item.matching){
-      if(item.bank && item.bank.length) html += '<div class="pq-bank">Word bank: '+item.bank.map(esc).join(' &nbsp;&bull;&nbsp; ')+'</div>';
+      // Printed like a paper matching section: answer letter + term on the left, lettered definitions on the right
+      const bank = item.bank || [];
+      const letterOf = a => { if(!a || a==='(blank)') return ''; const m=/^\s*([a-z])\s*[\.\)]/i.exec(String(a)); if(m) return m[1].toLowerCase(); const k=bank.indexOf(a); return k>=0?String.fromCharCode(97+k):String(a); };
+      html += '<div class="pq-match"><div>';
       item.matching.forEach((m,i)=>{
-        const has = m.answer && m.answer!=='(blank)', rt = m.item || '';
-        html += '<div class="pq-matchrow"><span class="pq-blank'+(has?'':' pq-blank-empty')+'">'+esc(has?m.answer:'no answer')+'</span> &nbsp;'+(hubStartsWithNumber(rt)?'':(i+1)+'. ')+esc(rt)+'</div>';
+        const L = letterOf(m.answer), rt = String(m.item||'').replace(/^\s*#\s*(\d+)\s*[\.\):-]?\s*/,'$1. ');
+        html += '<div class="pq-mrow"><span class="pq-mbox'+(L?'':' pq-mbox-empty')+'">'+(L?esc(L):'&nbsp;')+'</span>'+(hubStartsWithNumber(rt)?'':(i+1)+'. ')+esc(rt)+'</div>';
       });
+      html += '</div><div>';
+      bank.forEach((d,i)=>{ const m=/^\s*([a-z])\s*[\.\)]\s*([\s\S]*)$/i.exec(String(d)); html += '<div class="pq-mdef"><b>'+(m?m[1].toLowerCase():String.fromCharCode(97+i))+'.</b>'+esc(m?m[2]:d)+'</div>'; });
+      html += '</div></div>';
     } else {
       const has = item.answer && item.answer!=='(blank)';
       html += '<div class="pq-answerline">Answer: <span class="pq-blank'+(has?'':' pq-blank-empty')+'">'+esc(has?item.answer:'no answer')+'</span></div>';
