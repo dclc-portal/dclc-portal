@@ -73,6 +73,19 @@
   .raBar .raLabel { font-weight: 700; margin-right: auto; }
   .raBar button, .raBtn { background: #fff; border: 1px solid var(--navy); color: var(--navy); border-radius: 6px; font-size: 13px; padding: 7px 12px; cursor: pointer; width: auto; }
   .raBtn { float: right; margin: -4px 0 6px 10px; font-size: 12px; padding: 5px 10px; }
+  /* Matching: terms with a letter box on the left, lettered definitions on the right — like a paper matching section */
+  .mHelp { font-size: 13px; color: var(--text2); margin: -4px 0 12px; }
+  .mWrap { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 18px; align-items: start; }
+  .mColHead { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text3); margin-bottom: 6px; letter-spacing: .4px; }
+  .mRow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f0ee; }
+  .mRow .mSel { order: -1; width: 62px; flex: 0 0 62px; padding: 7px 6px; font-size: 15px; font-weight: 700; text-align: center; }
+  .mRow .mSel.filled { border-color: var(--navy); background: #f0f6ff; color: var(--navy); }
+  .mTerm { font-size: 14px; line-height: 1.35; }
+  .mDef { display: flex; gap: 8px; padding: 6px 0; font-size: 13.5px; line-height: 1.4; border-bottom: 1px solid #f0f0ee; }
+  .mLet { flex: 0 0 22px; height: 22px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-transform: lowercase; }
+  .mDef.used { color: #b5b5b0; }
+  .mDef.used .mLet { background: #d6d6d0; }
+  @media (max-width: 600px) { .mWrap { grid-template-columns: 1fr; } .mDefs { order: -1; } }
   .speaking { background: #FFF3BF !important; border-radius: 4px; box-shadow: 0 0 0 3px #FFF3BF; }
 </style>
 </head>
@@ -260,16 +273,10 @@
       // once — so it gets its own key (separate from any shortanswer
       // word bank above) and shows the same floating, crossed-off-as-
       // used strip in paced mode.
-      var matchWbKey = null;
-      if(q.type === 'matching'){
-        wbKeyCounter++;
-        matchWbKey = 'wb' + wbKeyCounter;
-        stepWordBanks[qIndex] = { key: matchWbKey, words: q.columns.slice() };
-      }
 
       var qHtml = '<div class="card" data-qtype="' + q.type + '" data-qid="' + qid + '">';
       qHtml += '<div class="qnum">Question ' + (qIndex + 1) + '</div>';
-      qHtml += '<div class="qtext">' + escapeHtml(q.text) + '</div>';
+      qHtml += '<div class="qtext">' + escapeHtml(q.text || (q.type === 'matching' ? (q.sectionTitle || 'Matching') : '')) + '</div>';
       if(q.image){
         qHtml += '<img class="qimg" src="' + escapeHtml(q.image) + '" alt="Question image" loading="lazy">';
       }
@@ -288,13 +295,25 @@
       } else if(q.type === 'shortanswer'){
         qHtml += '<input type="text" name="' + qid + '">';
       } else if(q.type === 'matching'){
-        qHtml += '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Match each item below to one of: ' + q.columns.map(escapeHtml).join(', ') + '</div>';
-        q.rows.forEach(function(rowText, ri){
-          qHtml += '<div style="margin-bottom:10px"><div style="font-size:14px;margin-bottom:4px">' + escapeHtml(rowText) + '</div>';
-          qHtml += '<select name="' + qid + '_row' + ri + '" data-wbkey="' + matchWbKey + '"><option value="">Choose...</option>';
-          q.columns.forEach(function(c){ qHtml += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; });
+        // Definitions keep their own letters ("a. ...") when they have them; otherwise a, b, c...
+        var defs = (q.columns || []).map(function(c, i){
+          var m = /^\s*([a-z])\s*[\.\)]\s*([\s\S]*)$/i.exec(String(c));
+          return { val: c, letter: (m ? m[1] : String.fromCharCode(97 + i)).toLowerCase(), text: m ? m[2] : c };
+        });
+        qHtml += '<div class="mHelp">Pick the letter of the definition that matches each term. Each letter is used once.</div>';
+        qHtml += '<div class="mWrap"><div class="mTerms"><div class="mColHead">Terms</div>';
+        (q.rows || []).forEach(function(rowText, ri){
+          var term = String(rowText).replace(/^\s*#\s*(\d+)\s*[\.\):-]?\s*/, '$1. ');
+          qHtml += '<div class="mRow"><div class="mTerm">' + escapeHtml(term) + '</div>' +
+            '<select class="mSel" name="' + qid + '_row' + ri + '" aria-label="Letter for ' + escapeHtml(term) + '"><option value="">—</option>';
+          defs.forEach(function(d){ qHtml += '<option value="' + escapeHtml(d.val) + '">' + d.letter + '</option>'; });
           qHtml += '</select></div>';
         });
+        qHtml += '</div><div class="mDefs"><div class="mColHead">Definitions</div>';
+        defs.forEach(function(d){
+          qHtml += '<div class="mDef" data-val="' + escapeHtml(d.val) + '"><span class="mLet">' + d.letter + '</span><span class="mDefText">' + escapeHtml(d.text) + '</span></div>';
+        });
+        qHtml += '</div></div>';
       }
 
       qHtml += '</div>';
@@ -305,6 +324,8 @@
     });
 
     container.innerHTML = html;
+    container.addEventListener('change', refreshMatching);
+    refreshMatching();
     document.getElementById('testWrap').style.display = 'block';
 
     if(testData.pacing === 'one-at-a-time'){
@@ -377,11 +398,15 @@
         chunks.push({ text: (i === labels.length - 1 && labels.length > 1 ? 'or, ' : '') + t + (/[.!?]$/.test(t) ? '' : '.'), el: l });
       });
     } else if(qtype === 'matching'){
-      var intro = card.querySelector('.card > div[style*="font-size:13px"]');
-      if(intro) add(intro.textContent, intro);
-      card.querySelectorAll('select').forEach(function(sel){
-        var row = sel.previousElementSibling;
-        if(row) add(row.textContent, row.parentNode);
+      var help = card.querySelector('.mHelp');
+      if(help) add(help.textContent, help);
+      card.querySelectorAll('.mDef').forEach(function(d){
+        var letter = d.querySelector('.mLet').textContent, text = d.querySelector('.mDefText').textContent;
+        add(letter.toUpperCase() + '. ' + text, d);
+      });
+      card.querySelectorAll('.mRow').forEach(function(row){
+        var t = row.querySelector('.mTerm');
+        if(t) add(t.textContent, row);
       });
     } else {
       var sel = card.querySelector('select[data-wbkey]');
@@ -526,6 +551,15 @@
     return out;
   }
 
+  /** Greys out definitions that are already picked, and highlights filled letter boxes. */
+  function refreshMatching(){
+    document.querySelectorAll('#questions .card[data-qtype="matching"]').forEach(function(card){
+      var used = {};
+      card.querySelectorAll('select.mSel').forEach(function(s){ if(s.value) used[s.value] = true; s.classList.toggle('filled', !!s.value); });
+      card.querySelectorAll('.mDef').forEach(function(d){ d.classList.toggle('used', !!used[d.getAttribute('data-val')]); });
+    });
+  }
+
   function applyFields(fields){
     Object.keys(fields || {}).forEach(function(name){
       var val = fields[name];
@@ -534,6 +568,7 @@
         else el.value = val;
       });
     });
+    refreshMatching();
   }
 
   function restoreProgress(){
