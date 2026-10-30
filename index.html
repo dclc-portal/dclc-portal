@@ -206,6 +206,8 @@ body.principal-mode [onchange*="toggleAccommUsed"]{ pointer-events:none !importa
 body.principal-mode #elemPortalBtn{ display:none !important }
 .chip.placementChip{border-style:dashed;border-color:#EF9F27;color:#854F0B}
 .chip.placementChip.on{background:#EF9F27;border-color:#EF9F27;border-style:solid;color:#fff}
+.chip.dnqChip{border-style:dashed;border-color:#B4B2A9;color:#5F5E5A}
+.chip.dnqChip.on{background:#5F5E5A;border-color:#5F5E5A;border-style:solid;color:#fff}
 body.principal-mode.lead-mode #elemPortalBtn{ display:inline-flex !important }  /* School leadership opens the elementary portal too (view only there) */
 /* Interventionist: sees everything; adds progress, documentation, sessions, notes, uploads. No student-info edits, calendar, imports, access. */
 body.interv-mode [onclick^="showStudentForm"], body.interv-mode [onclick^="deleteStudent"], body.interv-mode [onclick^="setStudentActive"],
@@ -475,6 +477,8 @@ const GRADES=['6','7','8','9','10','11','12'];
 // Placement: placed in Learning Lab without a diagnosis/FIE. Kept separate
 // from diagnoses so it never counts as one; FIE checks are skipped for it.
 const placementTag = (s, small) => s && s.placement ? `<span class="tag" style="background:#FAEEDA;color:#854F0B;border:1px dashed #EF9F27${small?';font-size:10px;padding:2px 7px':''}" title="${escapeHtmlLite(s.placementNote||'Placed in Learning Lab — no diagnosis/FIE')}">Placement</span>` : '';
+const dnqTag = (s) => s && s.dnq ? `<span class="tag" style="background:#F1EFE8;color:#5F5E5A;border:1px dashed #B4B2A9" title="${escapeHtmlLite(s.dnqNote||'Evaluated — did not qualify')}">DNQ</span>` : '';
+const extraDx = s => (s.placement?['Placement']:[]).concat(s.dnq?['DNQ']:[]);
 const DIAGNOSES=['Dyslexia','Dysgraphia','Dyscalculia','SLD','SLD – Reading','SLD – Written Expression','SLD – Math','ADHD – Inattentive','ADHD – Combined','Anxiety','Processing Disorder','Intellectual Disability','OHI','ED','Listening Comprehension','Language Processing Disorder','Autism','Other'];
 const ACCOMM={
   'Testing Accommodations':[
@@ -944,8 +948,9 @@ function renderOverview(s,dueAlert){
   return dueAlert+`
   <div class="card">
     <div class="card-title"><i class="ti ti-stethoscope"></i> Diagnosis</div>
-    ${placementTag(s)}${(s.diagnoses||[]).map(d=>`<span class="tag">${d}</span>`).join('')}${!(s.diagnoses||[]).length && !s.placement ? '<span style="color:var(--text3);font-size:13px">None recorded</span>' : ''}
+    ${placementTag(s)}${dnqTag(s)}${(s.diagnoses||[]).map(d=>`<span class="tag">${d}</span>`).join('')}${!(s.diagnoses||[]).length && !s.placement && !s.dnq ? '<span style="color:var(--text3);font-size:13px">None recorded</span>' : ''}
     ${s.placement && s.placementNote ? `<div style="font-size:12px;color:var(--text2);margin-top:6px"><b>Placement:</b> ${escapeHtmlLite(s.placementNote)}</div>` : ''}
+    ${s.dnq && s.dnqNote ? `<div style="font-size:12px;color:var(--text2);margin-top:6px"><b>DNQ:</b> ${escapeHtmlLite(s.dnqNote)}</div>` : ''}
   </div>
   ${nweaSummaryCard(s)}
   ${(()=>{
@@ -1160,7 +1165,7 @@ function renderSnapshot(s,c){
     <div class="avatar" style="background:${c.bg};color:${c.fg};width:44px;height:44px;font-size:15px;flex-shrink:0">${ini(s.name)}</div>
     <div><div style="font-size:16px;font-weight:700">${s.name}</div>
     <div style="font-size:11px;opacity:.7;margin-top:2px">Grade ${s.grade} · ${s.tier||'—'} · DCLC Learning Support · ${new Date().getFullYear()}–${new Date().getFullYear()+1}</div>
-    <div style="margin-top:6px">${(s.placement?['Placement']:[]).concat(s.diagnoses||[]).map(d=>`<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.18);color:#fff;margin-right:4px">${d}</span>`).join('')}</div></div>
+    <div style="margin-top:6px">${extraDx(s).concat(s.diagnoses||[]).map(d=>`<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.18);color:#fff;margin-right:4px">${d}</span>`).join('')}</div></div>
   </div>
   <div class="card"><div class="card-title"><i class="ti ti-adjustments"></i> Approved accommodations</div>${acList||'<div style="color:var(--text3);font-size:13px">None recorded</div>'}</div>
   ${cRows?`<div class="card"><div class="card-title"><i class="ti ti-school"></i> Course impact notes</div>${cRows}</div>`:''}
@@ -1518,9 +1523,12 @@ function tableToRows(container){
 function csvStamp(){ return new Date().toISOString().slice(0,10); }
 
 // ── MISSING DATA REPORT ───────────────────────────────────────────
+// No FIE yet: placed without one, or the initial evaluation is in process.
+// Those students aren't flagged for FIE dates, FIE document or diagnosis.
+const noFieYet = s => !!s.placement || (!!s.evalInProcess && (s.evalType==='Initial FIE' || !s.lastFie));
 const MISSING_CHECKS=[
-  ['Re-eval date', s=>!s.placement && !s.fieDue], ['FIE date', s=>!s.placement && !s.lastFie], ['Diagnosis', s=>!s.placement && !(s.diagnoses||[]).length],
-  ['FIE document', s=>!s.placement && !(s.fieDocs||[]).length && !(s.otherDocs||[]).length], ['Accommodations', s=>!(s.accommodations||[]).length],
+  ['Re-eval date', s=>!noFieYet(s) && !s.dnq && !s.fieDue], ['FIE date', s=>!noFieYet(s) && !s.lastFie], ['Diagnosis', s=>!noFieYet(s) && !s.dnq && !(s.diagnoses||[]).length],
+  ['FIE document', s=>!noFieYet(s) && !(s.fieDocs||[]).length && !(s.otherDocs||[]).length], ['Accommodations', s=>!(s.accommodations||[]).length],
   ['Teachers', s=>!(s.teacherList||[]).length], ['Schedule', s=>typeof STUDENT_SCHEDULES!=='undefined' && !STUDENT_SCHEDULES[s.name]],
   ['Parent email', s=>!s.parent1 && !s.parent2], ['Test delivery', s=>!s.testDelivery]
 ];
@@ -2476,7 +2484,8 @@ function showStudentForm(id=null){
       <div class="ff"><label>Parent 2 email</label><input id="f_parent2" type="email" value="${s.parent2||''}" placeholder="parent@email.com"></div>
     </div>
     <div class="divider"></div>
-    <div class="ff" style="margin-bottom:10px"><label>Diagnoses</label><div class="chip-group">${DIAGNOSES.map(d=>`<span class="chip${(s.diagnoses||[]).includes(d)?' on':''}" data-g="diag" onclick="this.classList.toggle('on')">${d}</span>`).join('')}<span class="chip placementChip${s.placement?' on':''}" id="f_placementChip" title="Placed in Learning Lab without a diagnosis or FIE" onclick="this.classList.toggle('on');document.getElementById('f_placementNoteWrap').style.display=this.classList.contains('on')?'block':'none'">Placement</span></div>
+    <div class="ff" style="margin-bottom:10px"><label>Diagnoses</label><div class="chip-group">${DIAGNOSES.map(d=>`<span class="chip${(s.diagnoses||[]).includes(d)?' on':''}" data-g="diag" onclick="this.classList.toggle('on')">${d}</span>`).join('')}<span class="chip placementChip${s.placement?' on':''}" id="f_placementChip" title="Placed in Learning Lab without a diagnosis or FIE" onclick="this.classList.toggle('on');document.getElementById('f_placementNoteWrap').style.display=this.classList.contains('on')?'block':'none'">Placement</span><span class="chip dnqChip${s.dnq?' on':''}" id="f_dnqChip" title="Evaluated — did not qualify" onclick="this.classList.toggle('on');document.getElementById('f_dnqNoteWrap').style.display=this.classList.contains('on')?'block':'none'">DNQ</span></div>
+      <div id="f_dnqNoteWrap" style="display:${s.dnq?'block':'none'};margin-top:8px"><input id="f_dnqNote" value="${escapeHtmlLite(s.dnqNote||'')}" placeholder="Evaluation date and who evaluated — e.g. Mesquite ISD FIE, Sept 2026" style="width:100%"><div style="font-size:11px;color:var(--text3);margin-top:3px">DNQ students still need an FIE date and FIE document; re-eval date and diagnosis aren't flagged.</div></div>
       <div id="f_placementNoteWrap" style="display:${s.placement?'block':'none'};margin-top:8px"><input id="f_placementNote" value="${escapeHtmlLite(s.placementNote||'')}" placeholder="Who placed them and why — e.g. Parent request, Aug 2026" style="width:100%"><div style="font-size:11px;color:var(--text3);margin-top:3px">Placement students aren't flagged for FIE date, re-eval date, FIE document or diagnosis.</div></div></div>
 
     <div class="ff full" style="margin-bottom:6px">
@@ -2532,6 +2541,8 @@ function saveStudent(){
   const diagnoses=[...document.querySelectorAll('#formBody .chip[data-g="diag"].on')].map(c=>c.textContent);
   const placementOn=!!document.getElementById('f_placementChip')?.classList.contains('on');
   const placementFields={ placement: placementOn, placementNote: placementOn ? (document.getElementById('f_placementNote')?.value||'').trim() : '' };
+  const dnqOn=!!document.getElementById('f_dnqChip')?.classList.contains('on');
+  Object.assign(placementFields,{ dnq: dnqOn, dnqNote: dnqOn ? (document.getElementById('f_dnqNote')?.value||'').trim() : '' });
   const strengths=[...document.querySelectorAll('#formBody .chip[data-g="str"].on')].map(c=>c.textContent);
   const challenges=[...document.querySelectorAll('#formBody .chip[data-g="chal"].on')].map(c=>c.textContent);
   const teacherList=[...document.querySelectorAll('#formBody .chip[data-g="teacher"].on')].map(c=>c.textContent);
@@ -2656,7 +2667,7 @@ function openPrint(id){
         <div style="width:40px;height:40px;border-radius:50%;background:${c.bg};color:${c.fg};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0">${ini(s.name)}</div>
         <div><div style="font-size:16px;font-weight:700">${s.name}</div>
         <div style="font-size:11px;opacity:.75;margin-top:2px">Grade ${s.grade} · ${s.tier||'—'} · DCLC Learning Support · ${new Date().getFullYear()}–${new Date().getFullYear()+1}</div>
-        ${(s.placement||(s.diagnoses||[]).length)?`<div style="margin-top:5px">${(s.placement?['Placement']:[]).concat(s.diagnoses||[]).map(d=>`<span style="font-size:10px;padding:2px 7px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;margin-right:4px">${d}</span>`).join('')}</div>`:''}</div>
+        ${(extraDx(s).length||(s.diagnoses||[]).length)?`<div style="margin-top:5px">${extraDx(s).concat(s.diagnoses||[]).map(d=>`<span style="font-size:10px;padding:2px 7px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;margin-right:4px">${d}</span>`).join('')}</div>`:''}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         
@@ -2837,7 +2848,7 @@ async function parseRoster(){
         <td style="padding:6px 10px;font-weight:700">${s.name}</td>
         <td style="padding:6px 10px">${s.grade||'—'}</td>
         <td style="padding:6px 10px">${s.tier?`<span class="badge ${tierBadgeClass(s.tier)}">${s.tier}</span>`:'—'}</td>
-        <td style="padding:6px 10px;font-size:12px">${(s.placement?['Placement']:[]).concat(s.diagnoses||[]).join(', ')||'—'}</td>
+        <td style="padding:6px 10px;font-size:12px">${extraDx(s).concat(s.diagnoses||[]).join(', ')||'—'}</td>
         <td style="padding:6px 10px;font-size:12px">${s.lastFie||'—'}</td>
         <td style="padding:6px 10px;font-size:12px">${s.fieDue||'—'}</td>
       </tr>`).join('');
@@ -4359,11 +4370,12 @@ function renderSchoolWideReport(){
   // Diagnoses
   const dx = {};
   const add = (label,i,n)=>{ (dx[label]=dx[label]||[0,0,0])[i]+=n; };
-  if(elemOk){ Object.keys(swData.diagnoses||{}).forEach(d=>add(d,0,swData.diagnoses[d])); if(swData.noDiagnosis) add('No diagnosis on file',0,swData.noDiagnosis); }
+  if(elemOk){ Object.keys(swData.diagnoses||{}).forEach(d=>add(d,0,swData.diagnoses[d])); if(swData.noDiagnosis) add('No diagnosis on file',0,swData.noDiagnosis); if(swData.dnq) add('DNQ (evaluated, did not qualify)',0,swData.dnq); }
   [[msStu,1],[hsStu,2]].forEach(([L,i])=>L.forEach(s=>{
     const ds = s.diagnoses||[];
     if(s.placement) add('Placement (no FIE)',i,1);
-    else if(!ds.length) add('No diagnosis on file',i,1);
+    if(s.dnq) add('DNQ (evaluated, did not qualify)',i,1);
+    if(!s.placement && !s.dnq && !ds.length) add('No diagnosis on file',i,1);
     ds.forEach(d=>add(d==='Other' ? 'Other (MS/HS — see student file)' : d, i, 1));
   }));
   const dxRows = Object.keys(dx).map(k=>[k].concat(dx[k]))
