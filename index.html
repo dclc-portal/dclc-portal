@@ -1530,7 +1530,7 @@ const MISSING_CHECKS=[
   ['Re-eval date', s=>!noFieYet(s) && !s.dnq && !s.fieDue], ['FIE date', s=>!noFieYet(s) && !s.lastFie], ['Diagnosis', s=>!noFieYet(s) && !s.dnq && !(s.diagnoses||[]).length],
   ['FIE document', s=>!noFieYet(s) && !(s.fieDocs||[]).length && !(s.otherDocs||[]).length], ['Accommodations', s=>!(s.accommodations||[]).length],
   ['Teachers', s=>!(s.teacherList||[]).length], ['Schedule', s=>typeof STUDENT_SCHEDULES!=='undefined' && !STUDENT_SCHEDULES[s.name]],
-  ['Parent email', s=>!s.parent1 && !s.parent2], ['Test delivery', s=>!s.testDelivery]
+  ['Test delivery', s=>!s.testDelivery]
 ];
 function missingRows(){
   return activeStudents().map(s=>({ s, miss:MISSING_CHECKS.filter(c=>c[1](s)).map(c=>c[0]) })).filter(r=>r.miss.length)
