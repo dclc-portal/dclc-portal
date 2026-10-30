@@ -204,6 +204,9 @@ body.principal-mode [onchange*="toggleTestComplete"]{ pointer-events:none !impor
 body.principal-mode [onchange*="toggleAttendance"],
 body.principal-mode [onchange*="toggleAccommUsed"]{ pointer-events:none !important; opacity:.5 }
 body.principal-mode #elemPortalBtn{ display:none !important }
+.chip.placementChip{border-style:dashed;border-color:#EF9F27;color:#854F0B}
+.chip.placementChip.on{background:#EF9F27;border-color:#EF9F27;border-style:solid;color:#fff}
+body.principal-mode.lead-mode #elemPortalBtn{ display:inline-flex !important }  /* School leadership opens the elementary portal too (view only there) */
 /* Interventionist: sees everything; adds progress, documentation, sessions, notes, uploads. No student-info edits, calendar, imports, access. */
 body.interv-mode [onclick^="showStudentForm"], body.interv-mode [onclick^="deleteStudent"], body.interv-mode [onclick^="setStudentActive"],
 body.interv-mode [onclick^="showRosterImport"], body.interv-mode [onclick^="showScheduleImport"], body.interv-mode [onclick^="showNweaImport"],
@@ -469,6 +472,9 @@ const TEACHER_ROSTER=[
 ];
 
 const GRADES=['6','7','8','9','10','11','12'];
+// Placement: placed in Learning Lab without a diagnosis/FIE. Kept separate
+// from diagnoses so it never counts as one; FIE checks are skipped for it.
+const placementTag = (s, small) => s && s.placement ? `<span class="tag" style="background:#FAEEDA;color:#854F0B;border:1px dashed #EF9F27${small?';font-size:10px;padding:2px 7px':''}" title="${escapeHtmlLite(s.placementNote||'Placed in Learning Lab — no diagnosis/FIE')}">Placement</span>` : '';
 const DIAGNOSES=['Dyslexia','Dysgraphia','Dyscalculia','SLD','SLD – Reading','SLD – Written Expression','SLD – Math','ADHD – Inattentive','ADHD – Combined','Anxiety','Processing Disorder','Intellectual Disability','OHI','ED','Listening Comprehension','Language Processing Disorder','Autism','Other'];
 const ACCOMM={
   'Testing Accommodations':[
@@ -689,9 +695,10 @@ function saveSession(){ try{ sessionStorage.setItem('dclc_session', JSON.stringi
 
 function applyRole(){
   const b=document.body;
-  b.classList.remove('principal-mode','interv-mode','teacher-mode');
+  b.classList.remove('principal-mode','interv-mode','teacher-mode','lead-mode');
   isPrincipal = !!currentUser && (currentUser.role==='leadership' || currentUser.role==='teacher' || currentUser.role==='counselor');
   if(isPrincipal) b.classList.add('principal-mode');
+  if(currentUser && currentUser.role==='leadership') b.classList.add('lead-mode');
   if(isInterventionist()) b.classList.add('interv-mode');
   if(isTeacherRole()) b.classList.add('teacher-mode');
   const pill=document.getElementById('userPill');
@@ -710,7 +717,7 @@ async function signOut(expired){
   try{ if(sessionToken && !expired) fetch(scriptUrl||PORTAL_SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'logout',token:sessionToken})}); }catch(e){}
   sessionToken=''; currentUser=null; students=[]; calendarEvents=[];
   try{ sessionStorage.removeItem('dclc_session'); localStorage.removeItem('dclc_students'); }catch(e){}
-  document.body.classList.remove('principal-mode','interv-mode','teacher-mode');
+  document.body.classList.remove('principal-mode','interv-mode','teacher-mode','lead-mode');
   const g=document.getElementById('loginGate'); if(g) g.style.display='flex';
   const err=document.getElementById('loginError');
   if(err){ err.style.display=expired?'block':'none'; err.textContent=expired?'Your sign-in expired. Please sign in again.':'That code did not work.'; }
@@ -876,7 +883,9 @@ function selectStudent(id){
   const s=students.find(x=>x.id===id); if(!s)return;
   const c=av(students.indexOf(s));
   const due=fieStatus(s.fieDue);
-  const dueAlert=isTeacherRole()?'':due==='overdue'
+  const dueAlert=isTeacherRole()?'':(s.placement && !s.fieDue)
+    ?`<div class="alert al-amber"><i class="ti ti-info-circle"></i> Placement — in Learning Lab without an FIE${s.placementNote?' · '+escapeHtmlLite(s.placementNote):''}</div>`
+    :due==='overdue'
     ?`<div class="alert al-red"><i class="ti ti-alert-circle"></i> FIE overdue — was due ${s.fieDue}</div>`
     :due==='soon'
     ?`<div class="alert al-amber"><i class="ti ti-clock"></i> FIE due within 90 days — ${s.fieDue}</div>`
@@ -935,7 +944,8 @@ function renderOverview(s,dueAlert){
   return dueAlert+`
   <div class="card">
     <div class="card-title"><i class="ti ti-stethoscope"></i> Diagnosis</div>
-    ${(s.diagnoses||[]).length ? s.diagnoses.map(d=>`<span class="tag">${d}</span>`).join('') : '<span style="color:var(--text3);font-size:13px">None recorded</span>'}
+    ${placementTag(s)}${(s.diagnoses||[]).map(d=>`<span class="tag">${d}</span>`).join('')}${!(s.diagnoses||[]).length && !s.placement ? '<span style="color:var(--text3);font-size:13px">None recorded</span>' : ''}
+    ${s.placement && s.placementNote ? `<div style="font-size:12px;color:var(--text2);margin-top:6px"><b>Placement:</b> ${escapeHtmlLite(s.placementNote)}</div>` : ''}
   </div>
   ${nweaSummaryCard(s)}
   ${(()=>{
@@ -1150,7 +1160,7 @@ function renderSnapshot(s,c){
     <div class="avatar" style="background:${c.bg};color:${c.fg};width:44px;height:44px;font-size:15px;flex-shrink:0">${ini(s.name)}</div>
     <div><div style="font-size:16px;font-weight:700">${s.name}</div>
     <div style="font-size:11px;opacity:.7;margin-top:2px">Grade ${s.grade} · ${s.tier||'—'} · DCLC Learning Support · ${new Date().getFullYear()}–${new Date().getFullYear()+1}</div>
-    <div style="margin-top:6px">${(s.diagnoses||[]).map(d=>`<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.18);color:#fff;margin-right:4px">${d}</span>`).join('')}</div></div>
+    <div style="margin-top:6px">${(s.placement?['Placement']:[]).concat(s.diagnoses||[]).map(d=>`<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.18);color:#fff;margin-right:4px">${d}</span>`).join('')}</div></div>
   </div>
   <div class="card"><div class="card-title"><i class="ti ti-adjustments"></i> Approved accommodations</div>${acList||'<div style="color:var(--text3);font-size:13px">None recorded</div>'}</div>
   ${cRows?`<div class="card"><div class="card-title"><i class="ti ti-school"></i> Course impact notes</div>${cRows}</div>`:''}
@@ -1509,8 +1519,8 @@ function csvStamp(){ return new Date().toISOString().slice(0,10); }
 
 // ── MISSING DATA REPORT ───────────────────────────────────────────
 const MISSING_CHECKS=[
-  ['Re-eval date', s=>!s.fieDue], ['FIE date', s=>!s.lastFie], ['Diagnosis', s=>!(s.diagnoses||[]).length],
-  ['FIE document', s=>!(s.fieDocs||[]).length && !(s.otherDocs||[]).length], ['Accommodations', s=>!(s.accommodations||[]).length],
+  ['Re-eval date', s=>!s.placement && !s.fieDue], ['FIE date', s=>!s.placement && !s.lastFie], ['Diagnosis', s=>!s.placement && !(s.diagnoses||[]).length],
+  ['FIE document', s=>!s.placement && !(s.fieDocs||[]).length && !(s.otherDocs||[]).length], ['Accommodations', s=>!(s.accommodations||[]).length],
   ['Teachers', s=>!(s.teacherList||[]).length], ['Schedule', s=>typeof STUDENT_SCHEDULES!=='undefined' && !STUDENT_SCHEDULES[s.name]],
   ['Parent email', s=>!s.parent1 && !s.parent2], ['Test delivery', s=>!s.testDelivery]
 ];
@@ -2466,7 +2476,8 @@ function showStudentForm(id=null){
       <div class="ff"><label>Parent 2 email</label><input id="f_parent2" type="email" value="${s.parent2||''}" placeholder="parent@email.com"></div>
     </div>
     <div class="divider"></div>
-    <div class="ff" style="margin-bottom:10px"><label>Diagnoses</label><div class="chip-group">${DIAGNOSES.map(d=>`<span class="chip${(s.diagnoses||[]).includes(d)?' on':''}" data-g="diag" onclick="this.classList.toggle('on')">${d}</span>`).join('')}</div></div>
+    <div class="ff" style="margin-bottom:10px"><label>Diagnoses</label><div class="chip-group">${DIAGNOSES.map(d=>`<span class="chip${(s.diagnoses||[]).includes(d)?' on':''}" data-g="diag" onclick="this.classList.toggle('on')">${d}</span>`).join('')}<span class="chip placementChip${s.placement?' on':''}" id="f_placementChip" title="Placed in Learning Lab without a diagnosis or FIE" onclick="this.classList.toggle('on');document.getElementById('f_placementNoteWrap').style.display=this.classList.contains('on')?'block':'none'">Placement</span></div>
+      <div id="f_placementNoteWrap" style="display:${s.placement?'block':'none'};margin-top:8px"><input id="f_placementNote" value="${escapeHtmlLite(s.placementNote||'')}" placeholder="Who placed them and why — e.g. Parent request, Aug 2026" style="width:100%"><div style="font-size:11px;color:var(--text3);margin-top:3px">Placement students aren't flagged for FIE date, re-eval date, FIE document or diagnosis.</div></div></div>
 
     <div class="ff full" style="margin-bottom:6px">
       <label>Accommodations</label>
@@ -2519,6 +2530,8 @@ function saveStudent(){
   const readChips=g=>[...document.querySelectorAll(`#accommChips .chip[data-g="${g}"].on,#formBody .chip[data-g="${g}"].on`)].map(c=>c.textContent);
   const accomms=[...new Set(readChips('accomm'))]; // deduplicate
   const diagnoses=[...document.querySelectorAll('#formBody .chip[data-g="diag"].on')].map(c=>c.textContent);
+  const placementOn=!!document.getElementById('f_placementChip')?.classList.contains('on');
+  const placementFields={ placement: placementOn, placementNote: placementOn ? (document.getElementById('f_placementNote')?.value||'').trim() : '' };
   const strengths=[...document.querySelectorAll('#formBody .chip[data-g="str"].on')].map(c=>c.textContent);
   const challenges=[...document.querySelectorAll('#formBody .chip[data-g="chal"].on')].map(c=>c.textContent);
   const teacherList=[...document.querySelectorAll('#formBody .chip[data-g="teacher"].on')].map(c=>c.textContent);
@@ -2529,7 +2542,7 @@ function saveStudent(){
   const evalFields = { evalInProcess: evalOn,
     evalType: evalOn?get('f_evalType'):'', evalStart: evalOn?get('f_evalStart'):'',
     evalExpected: evalOn?get('f_evalExpected'):'', evalNote: evalOn?get('f_evalNote'):'' };
-  const s=Object.assign({}, ex||{}, evalFields, {id:editingId||'s'+Date.now(),name,grade:get('f_grade'),tier:get('f_tier'),
+  const s=Object.assign({}, ex||{}, evalFields, placementFields, {id:editingId||'s'+Date.now(),name,grade:get('f_grade'),tier:get('f_tier'),
     testDelivery:get('f_delivery'),
     lastFie:get('f_lastFie'),fieDue:get('f_fieDue'),
     parent1:get('f_parent1'),parent2:get('f_parent2'),
@@ -2643,7 +2656,7 @@ function openPrint(id){
         <div style="width:40px;height:40px;border-radius:50%;background:${c.bg};color:${c.fg};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0">${ini(s.name)}</div>
         <div><div style="font-size:16px;font-weight:700">${s.name}</div>
         <div style="font-size:11px;opacity:.75;margin-top:2px">Grade ${s.grade} · ${s.tier||'—'} · DCLC Learning Support · ${new Date().getFullYear()}–${new Date().getFullYear()+1}</div>
-        ${(s.diagnoses||[]).length?`<div style="margin-top:5px">${s.diagnoses.map(d=>`<span style="font-size:10px;padding:2px 7px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;margin-right:4px">${d}</span>`).join('')}</div>`:''}</div>
+        ${(s.placement||(s.diagnoses||[]).length)?`<div style="margin-top:5px">${(s.placement?['Placement']:[]).concat(s.diagnoses||[]).map(d=>`<span style="font-size:10px;padding:2px 7px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;margin-right:4px">${d}</span>`).join('')}</div>`:''}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         
@@ -2824,7 +2837,7 @@ async function parseRoster(){
         <td style="padding:6px 10px;font-weight:700">${s.name}</td>
         <td style="padding:6px 10px">${s.grade||'—'}</td>
         <td style="padding:6px 10px">${s.tier?`<span class="badge ${tierBadgeClass(s.tier)}">${s.tier}</span>`:'—'}</td>
-        <td style="padding:6px 10px;font-size:12px">${(s.diagnoses||[]).join(', ')||'—'}</td>
+        <td style="padding:6px 10px;font-size:12px">${(s.placement?['Placement']:[]).concat(s.diagnoses||[]).join(', ')||'—'}</td>
         <td style="padding:6px 10px;font-size:12px">${s.lastFie||'—'}</td>
         <td style="padding:6px 10px;font-size:12px">${s.fieDue||'—'}</td>
       </tr>`).join('');
@@ -3505,6 +3518,7 @@ async function buildPrepView(){
 
   // Group every event's students by date, then by the period they test in.
   const days = {};
+  Object.keys(prepCardNames).forEach(k=>delete prepCardNames[k]);
   events.forEach(ev=>{
     const studs = prepMatchedStudents(ev);
     if(!studs.length) return;
@@ -3545,7 +3559,8 @@ async function buildPrepView(){
   };
 
   const TYPES={Test:'type-test',Quiz:'type-quiz',Assignment:'type-assign',Project:'type-project'};
-  const renderCard = ({ev, studs, others}) => {
+  const renderCard = ({ev, studs, others}, p) => {
+    prepCardNames[ev.id+'|'+p] = studs.map(s=>s.name);
     const accommCounts = {};
     studs.forEach(s=>(s.accommodations||[]).filter(a=>TESTING_ACCOMM.includes(a)).forEach(a=>{ accommCounts[a]=(accommCounts[a]||0)+1; }));
     const topAccomm = Object.entries(accommCounts).sort((a,b)=>b[1]-a[1]);
@@ -3580,7 +3595,7 @@ async function buildPrepView(){
           <button class="btn btn-sm" style="color:#854F0B;border-color:#EF9F2780;font-size:11px" onclick="markNotInLC('${ev.id}')">Not in LC</button>
         </div>
       </div>
-      <div class="hubSlot" data-ev="${ev.id}">${hubSlotHtml(ev)}</div>
+      <div class="hubSlot" data-ev="${ev.id}" data-p="${p}">${hubSlotHtml(ev, p)}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
         <div style="display:flex;flex-direction:column;gap:4px">${studs.map(s=>renderStudentRow(ev,s)).join('')}</div>
         <div>
@@ -3635,7 +3650,7 @@ async function buildPrepView(){
           ${muted?`<span style="font-size:11px;color:var(--text3)">doesn’t meet on ${dt==='A'?'an A':dt==='B'?'a B':'this'} day</span>`:''}
           ${n?`<span style="margin-left:auto;font-size:12px;color:var(--text2)"><b>${n}</b> student${n!==1?'s':''} · 📄 Print <b>${pap}</b> · 💻 Digital <b>${dig}</b></span>`:''}
         </div>
-        ${list.length ? list.sort((a,b)=>String(a.ev.teacher||'').localeCompare(String(b.ev.teacher||''))).map(renderCard).join('')
+        ${list.length ? list.sort((a,b)=>String(a.ev.teacher||'').localeCompare(String(b.ev.teacher||''))).map(g=>renderCard(g,p)).join('')
           : '<div style="border:1px dashed var(--border2);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--text3)">No DCLC students testing this period.</div>'}
       </div>`;
     };
@@ -3683,7 +3698,7 @@ async function loadHubStatus(){
 function paintHubSlots(){
   document.querySelectorAll('.hubSlot').forEach(el=>{
     const ev = (calendarEvents||[]).find(e=>e.id===el.getAttribute('data-ev'));
-    el.innerHTML = ev ? hubSlotHtml(ev) : '';
+    el.innerHTML = ev ? hubSlotHtml(ev, el.getAttribute('data-p')) : '';
   });
 }
 
@@ -3693,14 +3708,33 @@ const hubChip = (txt, kind) => {
 };
 const pList = ps => (ps||[]).map(p=>'P'+p).join(', ');
 
-function hubSlotHtml(ev){
+// Each period card shows only its own students' digital work. A multi-period
+// event (e.g. Bible P5, P7, P8) shares one test file, so the Hub's list covers
+// every period; this narrows it to the card's period. A submission whose name
+// isn't on any period of the event still shows, so nothing goes missing.
+const prepCardNames = {};      // 'eventId|period' -> [student names]
+const hubNameKey = n => String(n||'').toLowerCase().replace(/[^a-z]/g,'');
+function hubForPeriod(ev, p, list, nameOf){
+  const mine = prepCardNames[ev.id+'|'+p];
+  if(p==null || !mine) return list;
+  const mineK = new Set(mine.map(hubNameKey));
+  const allK = new Set();
+  Object.keys(prepCardNames).forEach(k=>{ if(k.indexOf(ev.id+'|')===0) prepCardNames[k].forEach(n=>allK.add(hubNameKey(n))); });
+  return list.filter(x=>{ const k=hubNameKey(nameOf(x)); return mineK.has(k) || !allK.has(k); });
+}
+
+function hubSlotHtml(ev, p){
   if(!hubStatus){
     if(hubStatusErr) return `<div style="font-size:12px;color:#A32D2D;margin:-4px 0 10px">💻 ${escapeHtmlLite(hubStatusErr)}</div>`;
     return `<div style="font-size:12px;color:var(--text3);margin:-4px 0 10px">💻 Checking digital test…</div>`;
   }
-  const st = hubStatus.events[ev.id];
+  let st = hubStatus.events[ev.id];
   if(!st) return '';
   const id = ev.id;
+  st = Object.assign({}, st, {
+    submissions: hubForPeriod(ev, p, st.submissions||[], s=>s.studentName),
+    readAloudNames: hubForPeriod(ev, p, st.readAloudNames||[], n=>n)
+  });
   const canEdit = !isPrincipal;
   const chips = [];
   let canBuild = false;
@@ -3731,7 +3765,7 @@ function hubSlotHtml(ev){
   </div>`;
   if(hubMsg[id]) html += `<div style="font-size:12px;margin:-4px 0 10px;color:${hubMsg[id].ok?'#0F6E56':'#A32D2D'};font-weight:700">${escapeHtmlLite(hubMsg[id].text)}</div>`;
   if(hubOpen[id]==='build' && canEdit && canBuild) html += hubBuildPanel(ev, st);
-  if(hubOpen[id]==='print') html += hubPrintPanel(ev, st);
+  if(hubOpen[id]==='print') html += hubPrintPanel(ev, st, p);
   return html;
 }
 
@@ -3764,14 +3798,14 @@ function hubBuildPanel(ev, st){
   </div>`;
 }
 
-function hubPrintPanel(ev, st){
+function hubPrintPanel(ev, st, p){
   const id = ev.id;
   const subs = (st.submissions||[]).slice().sort((a,b)=>Number(a.printed)-Number(b.printed) || a.studentName.localeCompare(b.studentName));
   const unprinted = subs.filter(s=>!s.printed);
   return `<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:0 0 12px">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-size:13px;font-weight:700;color:var(--navy)">Finished digital tests</span>
-      ${unprinted.length>1?`<button class="btn btn-sm" style="margin-left:auto" onclick="hubPrint('${id}','unprinted')">Print all ${unprinted.length} not printed</button>`:''}
+      ${unprinted.length>1?`<button class="btn btn-sm" style="margin-left:auto" onclick="hubPrint('${id}','unprinted','${p}')">Print all ${unprinted.length} not printed</button>`:''}
     </div>
     ${subs.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border);font-size:13px">
       <span style="flex:1">${escapeHtmlLite(s.studentName)}</span>
@@ -3821,9 +3855,10 @@ async function hubBuild(id, mode){
 }
 
 // Print finished digital tests — same layout as the Testing Hub's print tab.
-async function hubPrint(id, which){
+async function hubPrint(id, which, p){
   const st = hubStatus && hubStatus.events[id]; if(!st) return;
-  const rows = which==='unprinted' ? st.submissions.filter(s=>!s.printed).map(s=>s.rowNum) : [which];
+  const ev = (calendarEvents||[]).find(e=>e.id===id) || {id};
+  const rows = which==='unprinted' ? hubForPeriod(ev, p, st.submissions, s=>s.studentName).filter(s=>!s.printed).map(s=>s.rowNum) : [which];
   let ov = document.getElementById('hubPrintOv');
   if(!ov){
     ov = document.createElement('div'); ov.id = 'hubPrintOv';
@@ -4327,11 +4362,12 @@ function renderSchoolWideReport(){
   if(elemOk){ Object.keys(swData.diagnoses||{}).forEach(d=>add(d,0,swData.diagnoses[d])); if(swData.noDiagnosis) add('No diagnosis on file',0,swData.noDiagnosis); }
   [[msStu,1],[hsStu,2]].forEach(([L,i])=>L.forEach(s=>{
     const ds = s.diagnoses||[];
-    if(!ds.length) add('No diagnosis on file',i,1);
+    if(s.placement) add('Placement (no FIE)',i,1);
+    else if(!ds.length) add('No diagnosis on file',i,1);
     ds.forEach(d=>add(d==='Other' ? 'Other (MS/HS — see student file)' : d, i, 1));
   }));
   const dxRows = Object.keys(dx).map(k=>[k].concat(dx[k]))
-    .sort((a,b)=>(a[0]==='No diagnosis on file')-(b[0]==='No diagnosis on file') || (b[1]+b[2]+b[3])-(a[1]+a[2]+a[3]) || a[0].localeCompare(b[0]));
+    .sort((a,b)=>(a[0]==='No diagnosis on file')-(b[0]==='No diagnosis on file') || (a[0]==='Placement (no FIE)')-(b[0]==='Placement (no FIE)') || (b[1]+b[2]+b[3])-(a[1]+a[2]+a[3]) || a[0].localeCompare(b[0]));
 
   const C = [SW_COLORS.elem, SW_COLORS.ms, SW_COLORS.hs];
   const maxServed = Math.max(1, ...SW_GRADES.map(g=>served[g]||0));
