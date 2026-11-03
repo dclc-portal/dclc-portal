@@ -4806,6 +4806,7 @@ function openCalendar(){
       </div>
       <div id="calChanges"></div>
       <div id="pendingList"><div style="color:var(--text3);font-size:13px;padding:8px 0">Click "Sync from Google Calendar" to load pending events.</div></div>
+      <div id="discardedList"></div>
     </div>
 
     <div class="card">
@@ -4923,7 +4924,9 @@ async function loadCalendarEvents(){
       renderCalendarChanges();
       // Filter to only events relevant to our students
       pendingEvents = r.events.filter(e => !discardedEventIds.includes(e.id) && isRelevantToStudents(e));
+      discardedUpcoming = r.events.filter(e => discardedEventIds.includes(e.id)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
       renderPendingEvents();
+      renderDiscardedEvents();
     }
   } catch(e){
     document.getElementById('pendingList').innerHTML=`<div style="color:#A32D2D;font-size:13px">Could not load calendar events: ${e.message}</div>`;
@@ -5328,12 +5331,42 @@ async function loadDiscardedIds(){
   } catch(e){}
 }
 
+// Discarded tests on the Google Calendar in the next 3 weeks, with Restore.
+let discardedUpcoming = [];
+let discardedOpen = false;
+function renderDiscardedEvents(){
+  const box = document.getElementById('discardedList'); if(!box) return;
+  const n = discardedUpcoming.length;
+  if(!n){ box.innerHTML=''; return; }
+  const canEdit = !isPrincipal;
+  box.innerHTML = `<div style="border-top:1px dashed var(--border2);margin-top:10px;padding-top:8px">
+    <button class="btn btn-sm" onclick="discardedOpen=!discardedOpen;renderDiscardedEvents()" style="font-size:12px"><i class="ti ti-trash"></i> Discarded tests in the next 3 weeks (${n}) ${discardedOpen?'▴':'▾'}</button>
+    ${discardedOpen ? discardedUpcoming.map(e=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 4px;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="min-width:92px;color:var(--text2)">${fmtShortDate(e.date)}</span>
+      <span style="font-size:11px;font-weight:700;padding:1px 6px;border-radius:20px;${e.source==='HS'?'background:#EEEDFE;color:#534AB7':'background:#E1F5EE;color:#0F6E56'}">${e.source||''}</span>
+      <span style="flex:1;min-width:200px">${escapeHtmlLite(e.title||'')}${(e.teacher||e.parsedTeacher)?' <span style="color:var(--text3)">— '+escapeHtmlLite(e.teacher||e.parsedTeacher)+'</span>':''}</span>
+      ${canEdit?`<button class="btn btn-sm" onclick="restoreDiscarded('${e.id}')"><i class="ti ti-arrow-back-up"></i> Restore</button>`:''}
+    </div>`).join('') : ''}
+  </div>`;
+}
+async function restoreDiscarded(id){
+  const e = discardedUpcoming.find(x=>x.id===id); if(!e) return;
+  discardedEventIds = discardedEventIds.filter(x=>x!==id);
+  discardedUpcoming = discardedUpcoming.filter(x=>x.id!==id);
+  pendingEvents.push(e);
+  pendingEvents.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  renderPendingEvents(); renderDiscardedEvents();
+  try{ await drivePost({ action:'saveDiscardedEvents', ids:discardedEventIds }); }
+  catch(err){ alert('Restored on this page, but the change could not be saved. Try again.'); }
+}
+
 async function discardEvent(idx){
   if(!confirm('Discard this event? It won\'t show up again when you sync.')) return;
   const e = pendingEvents[idx];
   if(!discardedEventIds.includes(e.id)){
     discardedEventIds.push(e.id);
   }
+  discardedUpcoming.push(e); discardedUpcoming.sort((a,b)=>String(a.date).localeCompare(String(b.date))); renderDiscardedEvents();
   pendingEvents.splice(idx,1);
   // Remove just this row from DOM without re-rendering the whole list
   const row = document.getElementById('pending_row_'+idx);
