@@ -3945,6 +3945,8 @@ function hubDoPrint(){
 function hubStartsWithNumber(t){ return /^\s*\d+\s*[.)]\s+/.test(t); }
 function hubStartsWithLetter(t){ return /^\s*[A-Za-z]\s*[.)]\s+/.test(t); }
 
+// The number a question/term already carries ("24." or "#24"), or null.
+function hubOwnNumber(t){ const m=/^\s*(?:#\s*(\d+)\s*[.):-]?|(\d+)\s*[.)])\s/.exec(String(t||'')+' '); return m ? +(m[1]||m[2]) : null; }
 function hubPrintDoc(items){
   const esc = escapeHtmlLite;
   let html = '', qNum = 0;
@@ -3954,10 +3956,19 @@ function hubPrintDoc(items){
       if(item.image) html += '<img class="pq-img" src="'+esc(item.image)+'" alt="">';
       return;
     }
-    qNum++;
     html += '<div class="pq">';
     const qText = item.question || '';
-    if(qText.trim()) html += '<div class="pq-text">'+(hubStartsWithNumber(qText)?'':'<span class="pq-num">'+qNum+'.</span>')+esc(qText)+'</div>';
+    // A matching section is a group of numbered items, not one question:
+    // no number on its heading, and the count moves ahead per item, so the
+    // printout keeps the original test's numbering.
+    const isMatch = item.type==='matching' && item.matching;
+    if(isMatch){
+      if(qText.trim()) html += '<div class="pq-text"><b>'+esc(qText.replace(/^\s*\d+\s*[.)]\s*/,''))+'</b></div>';
+    } else {
+      qNum++;
+      const own = hubOwnNumber(qText); if(own!=null) qNum = own;
+      if(qText.trim()) html += '<div class="pq-text">'+(hubStartsWithNumber(qText)?'':'<span class="pq-num">'+qNum+'.</span>')+esc(qText)+'</div>';
+    }
     if(item.image) html += '<img class="pq-img" src="'+esc(item.image)+'" alt="">';
     const opts = item.type==='truefalse' ? ['True','False'] : item.options;
     if((item.type==='multiplechoice' || item.type==='truefalse') && opts && opts.length){
@@ -3975,7 +3986,9 @@ function hubPrintDoc(items){
       html += '<div class="pq-match"><div>';
       item.matching.forEach((m,i)=>{
         const L = letterOf(m.answer), rt = String(m.item||'').replace(/^\s*#\s*(\d+)\s*[\.\):-]?\s*/,'$1. ');
-        html += '<div class="pq-mrow"><span class="pq-mbox'+(L?'':' pq-mbox-empty')+'">'+(L?esc(L):'&nbsp;')+'</span>'+(hubStartsWithNumber(rt)?'':(i+1)+'. ')+esc(rt)+'</div>';
+        const own = hubOwnNumber(rt); let num = '';
+        if(own!=null) qNum = own; else { qNum++; num = qNum+'. '; }
+        html += '<div class="pq-mrow"><span class="pq-mbox'+(L?'':' pq-mbox-empty')+'">'+(L?esc(L):'&nbsp;')+'</span>'+num+esc(rt)+'</div>';
       });
       html += '</div><div>';
       bank.forEach((d,i)=>{ const m=/^\s*([a-z])\s*[\.\)]\s*([\s\S]*)$/i.exec(String(d)); html += '<div class="pq-mdef"><b>'+(m?m[1].toLowerCase():String.fromCharCode(97+i))+'.</b>'+esc(m?m[2]:d)+'</div>'; });
