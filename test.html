@@ -787,9 +787,13 @@
     return answers;
   }
 
+  var submitting = false;
   function submitTest(){
+    if(submitting || submitted) return;   // one click only — no duplicate copies
+    submitting = true;
     stopReading();
     document.getElementById('submitBtn').disabled = true;
+    document.getElementById('submitBtn').textContent = 'Submitting…';
     document.getElementById('error').style.display = 'none';
     var answers = collectAnswers();
 
@@ -832,7 +836,9 @@
         if(attemptsLeft > 1){
           setTimeout(function(){ attemptSubmit(answers, attemptsLeft - 1); }, 1500);
         } else {
+          submitting = false;
           document.getElementById('submitBtn').disabled = false;
+          document.getElementById('submitBtn').textContent = 'Submit test';
           document.getElementById('error').textContent = 'Could not save your answers after several tries. Please stay on this page and try Submit again, or tell Mrs. Seabourn right away.';
           document.getElementById('error').style.display = 'block';
         }
