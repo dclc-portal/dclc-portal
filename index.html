@@ -4924,7 +4924,7 @@ async function loadCalendarEvents(){
       renderCalendarChanges();
       // Filter to only events relevant to our students
       pendingEvents = r.events.filter(e => !discardedEventIds.includes(e.id) && isRelevantToStudents(e));
-      discardedUpcoming = r.events.filter(e => discardedEventIds.includes(e.id)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+      discardedUpcoming = (r.discarded || r.events.filter(e => discardedEventIds.includes(e.id))).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));
       renderPendingEvents();
       renderDiscardedEvents();
     }
@@ -5351,7 +5351,8 @@ function renderDiscardedEvents(){
 }
 async function restoreDiscarded(id){
   const e = discardedUpcoming.find(x=>x.id===id); if(!e) return;
-  discardedEventIds = discardedEventIds.filter(x=>x!==id);
+  const keys = e.discardedKeys || [id];
+  discardedEventIds = discardedEventIds.filter(x=>!keys.includes(x));
   discardedUpcoming = discardedUpcoming.filter(x=>x.id!==id);
   pendingEvents.push(e);
   pendingEvents.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
