@@ -4856,8 +4856,9 @@ function openCalendar(){
             <select id="ae_type" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:Arial">
               <option>Test</option><option>Quiz</option><option>Assignment</option><option>Project</option><option>Presentation</option><option>Other</option>
             </select></div>
-          <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Class / Course *</label><input type="text" id="ae_class" placeholder="e.g. Algebra II" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
-          <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Teacher</label><input type="text" id="ae_teacher" placeholder="Last name" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"></div>
+          <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Teacher *</label><select id="ae_teacher" onchange="aeUpdateCourses()" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:Arial"><option value="">Select teacher...</option>${Object.keys((typeof TEACHER_COURSES!=='undefined'&&TEACHER_COURSES)||{}).sort().map(t=>`<option value="${escapeHtmlLite(t)}">${escapeHtmlLite(t)}</option>`).join('')}</select></div>
+          <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Course *</label><select id="ae_class" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:Arial"><option value="">Select teacher first...</option></select></div>
+          <div style="grid-column:1/-1"><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Periods * (select all that apply)</label><div style="display:flex;gap:6px;flex-wrap:wrap">${[1,2,3,4,5,6,7,8].map(p=>`<label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer;padding:4px 10px;border:1px solid var(--border2);border-radius:6px;background:var(--bg)"><input type="checkbox" id="ae_p${p}" value="${p}" style="width:14px;height:14px"> P${p}</label>`).join('')}</div></div>
           <div><label style="font-size:12px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">Level</label>
             <select id="ae_level" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:Arial">
               <option value="">All</option><option value="HS">High School</option><option value="MS">Middle School</option>
@@ -5525,14 +5526,28 @@ function showAddEventForm(){
   document.getElementById('addEventModal').style.display='flex';
 }
 
+function aeUpdateCourses(){
+  const t = document.getElementById('ae_teacher')?.value||'';
+  const el = document.getElementById('ae_class'); if(!el) return;
+  const courses = (TEACHER_COURSES&&TEACHER_COURSES[t])||[];
+  el.innerHTML = '<option value="">'+(t?'Select course...':'Select teacher first...')+'</option>' + courses.map(c=>`<option value="${escapeHtmlLite(c)}">${escapeHtmlLite(c)}</option>`).join('');
+}
+
 async function addEventManually(){
   const date = document.getElementById('ae_date').value;
-  const cls = document.getElementById('ae_class').value.trim();
-  if(!date||!cls){ alert('Date and class are required.'); return; }
+  const teacher = document.getElementById('ae_teacher').value;
+  const cls = document.getElementById('ae_class').value;
+  const periods = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('ae_p'+p)?.checked).map(String);
+  if(!date){ alert('Pick a date.'); return; }
+  if(!teacher){ alert('Pick the teacher from the list.'); return; }
+  if(!cls){ alert('Pick the course from the list.'); return; }
+  if(!periods.length){ alert('Check at least one period.'); return; }
+  const studentIds = getMatchingStudentIds(teacher, cls, periods);
+  if(!studentIds.length && !confirm('No DCLC students matched '+teacher+' · '+cls+' · P'+periods.join(', P')+'.\n\nSave it anyway?')) return;
   const ev = {
     id:'ev'+Date.now()+Math.random().toString(36).slice(2),
     date, type:document.getElementById('ae_type').value,
-    class:cls, teacher:document.getElementById('ae_teacher').value.trim(),
+    class:cls, teacher, period:periods.join(','), studentIds,
     level:document.getElementById('ae_level').value,
     title:(document.getElementById('ae_title')?.value||'').trim(),
     notes:document.getElementById('ae_notes').value.trim(),
@@ -5541,8 +5556,11 @@ async function addEventManually(){
   calendarEvents.push(ev);
   await saveCalendarEvents();
   document.getElementById('addEventModal').style.display='none';
-  ['ae_date','ae_class','ae_title','ae_teacher','ae_notes'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['ae_date','ae_title','ae_teacher','ae_notes'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  [1,2,3,4,5,6,7,8].forEach(p=>{ const c=document.getElementById('ae_p'+p); if(c) c.checked=false; });
+  aeUpdateCourses();
   renderApprovedEvents();
+  if(typeof buildPrepView==='function') buildPrepView();
 }
 
 function updateCourseDropdown(idx){
@@ -5746,7 +5764,9 @@ function saveEditCalEvent(id){
   const _c = document.getElementById('edit_course')?.value||'';
   const _hasList = !!(_t && (TEACHER_COURSES[_t]||[]).length);
   const _ps = [1,2,3,4,5,6,7,8].filter(p=>document.getElementById('edit_p'+p)?.checked);
+  if(!document.getElementById('edit_teacher')?.value){ alert('Pick the teacher from the list before saving.'); return; }
   if(_hasList && !_c){ alert('Pick the course from the list before saving.'); return; }
+  if(!getMatchingStudentIds(_t, _c||ev.class, _ps.map(String)).length && !confirm('No DCLC students matched '+_t+' · '+(_c||ev.class)+' · P'+_ps.join(', P')+'.\n\nSave it anyway?')) return;
   if(!_ps.length){ alert('Check at least one period before saving — with none, every student this teacher has is put on the test.'); return; }
   ev.date = document.getElementById('edit_date')?.value||ev.date;
   ev.type = document.getElementById('edit_type')?.value||ev.type;
